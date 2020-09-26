@@ -1,46 +1,43 @@
 use std::io;
-use std::mem::size_of;
+use std::fs::File;
+use std::io::prelude::*;
 
 mod chunk;
 //mod common;
+mod compiler;
+mod lexer;
 mod value;
 mod vm;
 
-use crate::chunk::{ByteCode, Chunk};
-use crate::value::Value;
-use crate::vm::VM;
+use crate::vm::{VM, InterpretResult, InterpretError};
 
-fn main() -> io::Result<()> {
-    let mut vm = VM::new();
+fn main() -> InterpretResult {
+    let vm = VM::new();
+    if let Some(file_name) = std::env::args().nth(1) {
+        run_file(&file_name, vm)
+    } else {
+        repl(vm)
+    }
+}
 
-    let constant = vm.chunk.add_constant(Value::Float(1.2));
-    vm.chunk.append(ByteCode::Constant(constant), 123);
-
-    let constant = vm.chunk.add_constant(Value::Float(3.4));
-    vm.chunk.append(ByteCode::Constant(constant), 123);
-
-    vm.chunk.append(ByteCode::Add, 123);
-
-    let constant = vm.chunk.add_constant(Value::Float(5.6));
-    vm.chunk.append(ByteCode::Constant(constant), 123);
-
-    vm.chunk.append(ByteCode::Div, 123);
-    vm.chunk.append(ByteCode::Negate, 123);
-
-    vm.chunk.append(ByteCode::Return, 123);
-    //vm.chunk.disassemble("test chunk");
-    vm.interpret();
-    
-    /*
-    let mut input = String::new();
+fn repl(mut vm: VM) -> InterpretResult {
+    let mut line = String::new();
     loop {
-        let n = io::stdin().read_line(&mut input)?;
-        if n == 0 {
+        print!("> ");
+        let bytes = io::stdin().read_line(&mut line).unwrap();
+        if bytes == 0 {
+            println!();
             break;
         } else {
-            interpret(input);
+            vm.interpret_str(&line);
         }
     }
-    */
     Ok(())
+}
+
+fn run_file(file_name: &str, mut vm: VM) -> InterpretResult {
+    let mut file = File::open(file_name).map_err(|_| InterpretError::File)?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).map_err(|_| InterpretError::File)?;
+    vm.interpret_str(&contents)
 }

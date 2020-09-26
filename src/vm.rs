@@ -1,5 +1,6 @@
 use crate::chunk::{Chunk, ByteCode};
 use crate::value::Value;
+use crate::compiler::compile;
 
 pub struct VM {
     pub chunk: Chunk,
@@ -7,12 +8,14 @@ pub struct VM {
     stack: Vec<Value>,
 }
 
+#[derive(Debug)]
 pub enum InterpretError {
     Compile,
     Runtime,
+    File,
 }
 
-type InterpretResult = Result<(), InterpretError>;
+pub type InterpretResult = Result<(), InterpretError>;
 
 impl VM {
     pub fn new() -> Self {
@@ -21,6 +24,11 @@ impl VM {
             ip: 0,
             stack: Vec::new(),
         }
+    }
+     
+    pub fn interpret_str(&mut self, source: &str) -> InterpretResult {
+        compile(source);
+        Ok(())
     }
 
     pub fn interpret(&mut self) -> InterpretResult {
