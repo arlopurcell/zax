@@ -1,0 +1,10 @@
+[package]
+name = "zax"
+version = "0.1.0"
+authors = ["Arlo J Purcell <arlo@indeed.com>"]
+edition = "2018"
+
+[features]
+debug-logging = []
+
+[dependencies]
