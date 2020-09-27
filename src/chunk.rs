@@ -14,8 +14,9 @@ pub enum ByteCode {
 
 pub struct Chunk {
     code: Vec<ByteCode>,
-    lines: Vec<u32>,
     constants: Vec<Value>,
+    // TODO save memory by using a run length encoding
+    lines: Vec<u32>,
 }
 
 impl Chunk {
@@ -35,6 +36,17 @@ impl Chunk {
         self.constants.get(*constant as usize).unwrap()
     }
 
+    pub fn append(&mut self, code: ByteCode, line: u32) -> () {
+        self.code.push(code);
+        self.lines.push(line);
+    }
+
+    pub fn add_constant(&mut self, value: Value) -> u8 {
+        self.constants.push(value);
+        u8::try_from(self.constants.len() - 1).ok().expect("Too many constants")
+    }
+
+    #[cfg(feature = "debug-logging")]
     pub fn disassemble(&self, name: &str) -> () {
         println!("== {} ==", name);
 
@@ -43,6 +55,7 @@ impl Chunk {
         }
     }
 
+    #[cfg(feature = "debug-logging")]
     pub fn disassemble_instruction(&self, offset: usize) -> () {
         print!("{offset:>width$} ", offset=offset, width=4);
         if offset > 0 && self.lines.get(offset).unwrap() == self.lines.get(offset - 1).unwrap() {
@@ -62,20 +75,12 @@ impl Chunk {
         }
     }
 
-    pub fn append(&mut self, code: ByteCode, line: u32) -> () {
-        self.code.push(code);
-        self.lines.push(line);
-    }
-
-    pub fn add_constant(&mut self, value: Value) -> u8 {
-        self.constants.push(value);
-        u8::try_from(self.constants.len() - 1).ok().expect("Too many constants")
-    }
-
+    #[cfg(feature = "debug-logging")]
     fn simple_instruction(name: &str) -> () {
         println!("{}", name);
     }
 
+    #[cfg(feature = "debug-logging")]
     fn constant_instruction(&self, constant: &u8) -> () {
         print!("Constant {constant:>width$} ", constant=constant, width=6);
         self.get_constant(constant).print();

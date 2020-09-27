@@ -51,7 +51,7 @@ impl <'a> Lexer<'a> {
         }
     }
 
-    pub fn next(&mut self) -> Token {
+    pub fn next(&mut self) -> Token<'a> {
         self.skip_whitespace();
         self.start = self.current;
         if self.is_at_end() {
@@ -144,15 +144,15 @@ impl <'a> Lexer<'a> {
         }
     }
 
-    fn make_token(&self, tok_type: TokenType) -> Token {
+    fn make_token(&self, tok_type: TokenType) -> Token<'a> {
         Token::new(tok_type, &std::str::from_utf8(&self.source[self.start..self.current]).unwrap(), self.line)
     }
 
-    fn error_token(&self, message: &'static str) -> Token {
+    pub fn error_token(&self, message: &'static str) -> Token<'a> {
         Token::new(TokenType::Error, message, self.line)
     }
 
-    fn string(&mut self) -> Token {
+    fn string(&mut self) -> Token<'a> {
         while self.peek() != '"' && !self.is_at_end() {
             if self.peek() == '\n' {
                 self.line += 1;
@@ -168,7 +168,7 @@ impl <'a> Lexer<'a> {
         }
     }
 
-    fn number(&mut self) -> Token {
+    fn number(&mut self) -> Token<'a> {
         while self.peek().is_digit(10) {
             self.current += 1;
         }
@@ -185,7 +185,7 @@ impl <'a> Lexer<'a> {
         }
     }
 
-    fn identifier(&mut self) -> Token {
+    fn identifier(&mut self) -> Token<'a> {
         while self.peek().is_alphanumeric() {
             self.current += 1;
         }
