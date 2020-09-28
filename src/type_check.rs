@@ -26,6 +26,10 @@ impl<'a> TCSide<'a> {
         TCSide::Constraint(vec![node_type], Vec::new())
     }
 
+    fn add() -> Self {
+        TCSide::Constraint(vec![TCNodeType::Int, TCNodeType::Float, TCNodeType::Str], Vec::new())
+    }
+
     fn numeric() -> Self {
         TCSide::Constraint(vec![TCNodeType::Int, TCNodeType::Float], Vec::new())
     }
@@ -281,7 +285,15 @@ fn generate_constraints<'a, 'b>(node: &'a AstNode) -> Result<Vec<TypeConstraint<
                     TypeConstraint::new(TCSide::Expr(a), TCSide::basic(TCNodeType::Bool)),
                     TypeConstraint::new(TCSide::Expr(b), TCSide::basic(TCNodeType::Bool)),
                 ],
-                Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => vec![
+                Operator::Add => vec![
+                    TypeConstraint::new(TCSide::Expr(node), TCSide::add()),
+                    TypeConstraint::new(TCSide::Expr(a), TCSide::add()),
+                    TypeConstraint::new(TCSide::Expr(b), TCSide::add()),
+                    TypeConstraint::new(TCSide::Expr(a), TCSide::Expr(b)),
+                    TypeConstraint::new(TCSide::Expr(node), TCSide::Expr(a)),
+                    TypeConstraint::new(TCSide::Expr(node), TCSide::Expr(b)),
+                ],
+                Operator::Sub | Operator::Mul | Operator::Div => vec![
                     TypeConstraint::new(TCSide::Expr(node), TCSide::numeric()),
                     TypeConstraint::new(TCSide::Expr(a), TCSide::numeric()),
                     TypeConstraint::new(TCSide::Expr(b), TCSide::numeric()),

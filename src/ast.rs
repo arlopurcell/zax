@@ -2,7 +2,7 @@ use crate::chunk::ByteCode;
 use crate::code_gen::Generator;
 use crate::common::InterpretError;
 use crate::type_check::{find_type, DataType, TypeConstraint};
-use crate::value::Value;
+use crate::heap::{Heap, Object, ObjType};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AstNode<'a> {
@@ -56,13 +56,17 @@ impl<'a> AstNode<'a> {
         }
     }
 
-    pub fn generate(self, generator: &mut Generator) -> () {
+    pub fn generate(self, generator: &mut Generator, heap: &mut Heap) -> () {
         match self.node_type {
             AstNodeType::IntLiteral(value) => {
                 generator.emit_constant(&value.to_be_bytes(), self.line)
             }
             AstNodeType::FloatLiteral(value) => {
                 generator.emit_constant(&value.to_be_bytes(), self.line)
+            }
+            AstNodeType::StrLiteral(value) => {
+                let heap_index = heap.allocate(Object::new(ObjType::Str(value.to_string())));
+                generator.emit_constant(&heap_index.to_be_bytes(), self.line)
             }
             AstNodeType::Unary(operator, operand) => {
                 let code = match operator {
@@ -74,7 +78,7 @@ impl<'a> AstNode<'a> {
                     Operator::Not => ByteCode::Not,
                     _ => panic!("Unexpected unary code gen"),
                 };
-                operand.generate(generator);
+                operand.generate(generator, heap);
                 generator.emit_byte(code, self.line)
             }
             AstNodeType::Binary(operator, lhs, rhs) => {
@@ -82,6 +86,7 @@ impl<'a> AstNode<'a> {
                     Operator::Add => match &lhs.data_type {
                         Some(DataType::Int) => ByteCode::AddInt,
                         Some(DataType::Float) => ByteCode::AddFloat,
+                        Some(DataType::Str) => ByteCode::Concat,
                         _ => panic!("Invalid type for add"),
                     }
                     Operator::Sub => match &lhs.data_type {
@@ -123,18 +128,20 @@ impl<'a> AstNode<'a> {
                         Some(DataType::Int) => ByteCode::Equal8,
                         Some(DataType::Float) => ByteCode::Equal8,
                         Some(DataType::Bool) => ByteCode::Equal1,
+                        Some(DataType::Str) => ByteCode::EqualHeap,
                         _ => panic!("Invalid type for equal"),
                     }
                     Operator::NotEqual => match &lhs.data_type {
                         Some(DataType::Int) => ByteCode::NotEqual8,
                         Some(DataType::Float) => ByteCode::NotEqual8,
                         Some(DataType::Bool) => ByteCode::NotEqual1,
+                        Some(DataType::Str) => ByteCode::NotEqualHeap,
                         _ => panic!("Invalid type for equal"),
                     }
                     _ => panic!("Unexpected binary code gen"),
                 };
-                lhs.generate(generator);
-                rhs.generate(generator);
+                lhs.generate(generator, heap);
+                rhs.generate(generator, heap);
                 generator.emit_byte(code, self.line)
             }
 

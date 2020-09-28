@@ -1,5 +1,4 @@
 use crate::chunk::{ByteCode, Chunk};
-use crate::value::Value;
 
 pub struct Generator {
     compiling_chunk: Chunk,

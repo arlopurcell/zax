@@ -1,12 +1,13 @@
 use crate::chunk::{ByteCode, Chunk};
-use crate::common::{InterpretError, InterpretResult};
+use crate::common::InterpretResult;
 use crate::compiler::compile;
-use crate::value::Value;
+use crate::heap::{Heap, Object, ObjType};
 
 pub struct VM {
     pub chunk: Chunk,
     ip: usize,
     stack: Vec<u8>,
+    heap: Heap,
 }
 
 impl VM {
@@ -15,12 +16,13 @@ impl VM {
             chunk: Chunk::new(),
             ip: 0,
             stack: Vec::new(),
+            heap: Heap::new(),
         }
     }
 
     pub fn interpret(&mut self, source: &str) -> InterpretResult {
         // TODO rearrange calls so we don't allocate a chunk in new
-        self.chunk = compile(source)?;
+        self.chunk = compile(source, &mut self.heap)?;
         self.ip = 0;
         self.run()
     }
@@ -54,6 +56,33 @@ impl VM {
         f64::from_le_bytes(self.pop_bytes_8())
     }
 
+    fn pop_heap(&mut self) -> &Object {
+        let heap_index = usize::from_le_bytes(self.pop_bytes_8());
+        self.heap.get(heap_index)
+    }
+
+    fn pop_string(&mut self) -> &str {
+        let object = self.pop_heap();
+        match &object.obj_type {
+            ObjType::Str(string) => &string,
+            _ => panic!("object at heap index non-string"),
+        }
+    }
+
+    fn pop_heap_2(&mut self) -> (&Object, &Object) {
+        let heap_index_2 = usize::from_le_bytes(self.pop_bytes_8());
+        let heap_index_1 = usize::from_le_bytes(self.pop_bytes_8());
+        (self.heap.get(heap_index_1), self.heap.get(heap_index_2))
+    }
+
+    fn pop_string_2(&mut self) -> (&str, &str) {
+        let (object_1, object_2) = self.pop_heap_2();
+        match (&object_1.obj_type, &object_2.obj_type) {
+            (ObjType::Str(string_1), ObjType::Str(string2)) => (&string_1, &string2),
+            _ => panic!("object at heap index non-string"),
+        }
+    }
+
     fn push(&mut self, bytes: &[u8]) -> () {
         self.stack.extend_from_slice(bytes)
     }
@@ -68,6 +97,11 @@ impl VM {
 
     fn push_float(&mut self, val: f64) -> () {
         self.push(&val.to_be_bytes())
+    }
+
+    fn push_string(&mut self, val: String) -> () {
+        let heap_index = self.heap.allocate(Object::new(ObjType::Str(val)));
+        self.push(&heap_index.to_be_bytes())
     }
 
     fn run(&mut self) -> InterpretResult {
@@ -87,9 +121,6 @@ impl VM {
             self.ip += 1;
             match bc {
                 ByteCode::Return => {
-                    // TODO 
-                    println!("{:?}", self.stack);
-                    self.stack.clear();
                     return Ok(()) 
                 }
                 ByteCode::PrintInt => {
@@ -97,6 +128,12 @@ impl VM {
                 }
                 ByteCode::PrintFloat => {
                     println!("{}", self.pop_float())
+                }
+                ByteCode::PrintBool => {
+                    println!("{}", self.pop_bool())
+                }
+                ByteCode::PrintStr => {
+                    println!("{}", self.pop_string())
                 }
                 ByteCode::Constant(constant) => {
                     let constant = self.chunk.get_constant(constant, 8);
@@ -213,6 +250,22 @@ impl VM {
                     let b = self.pop_byte();
                     let a = self.pop_byte();
                     self.push_bool(a != b);
+                }
+                ByteCode::EqualHeap => {
+                    let (a, b) = self.pop_heap_2();
+                    let result = a == b;
+                    self.push_bool(result);
+                }
+                ByteCode::NotEqualHeap => {
+                    let (a, b) = self.pop_heap_2();
+                    let result = a != b;
+                    self.push_bool(result);
+                }
+                ByteCode::Concat => {
+                    let (a, b) = self.pop_string_2();
+                    let mut result = a.to_string();
+                    result.push_str(b);
+                    self.push_string(result);
                 }
             }
         }

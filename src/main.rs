@@ -7,9 +7,9 @@ mod chunk;
 mod code_gen;
 mod common;
 mod compiler;
+mod heap;
 mod lexer;
 mod type_check;
-mod value;
 mod vm;
 
 use crate::common::{InterpretError, InterpretResult};

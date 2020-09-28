@@ -1,13 +1,12 @@
 use std::convert::TryFrom;
-use std::convert::TryInto;
-
-use crate::value::Value;
 
 #[derive(Debug)]
 pub enum ByteCode {
     Return,
     PrintInt,
     PrintFloat,
+    PrintBool,
+    PrintStr,
     Constant(u8),
     NegateInt,
     AddInt,
@@ -32,6 +31,9 @@ pub enum ByteCode {
     NotEqual8, //each arg is 8 bytes
     Equal1,
     NotEqual1,
+    EqualHeap,
+    NotEqualHeap,
+    Concat,
 }
 
 pub struct Chunk {

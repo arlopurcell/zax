@@ -1,13 +1,14 @@
 use std::mem::swap;
 
 use crate::ast::{AstNode, AstNodeType, Operator};
-use crate::chunk::Chunk;
+use crate::chunk::{Chunk, ByteCode};
 use crate::code_gen::Generator;
 use crate::common::InterpretError;
 use crate::lexer::{Lexer, Token, TokenType};
-use crate::type_check::generate_substitutions;
+use crate::type_check::{generate_substitutions, DataType};
+use crate::heap::Heap;
 
-pub fn compile(source: &str) -> Result<Chunk, InterpretError> {
+pub fn compile(source: &str, heap: &mut Heap) -> Result<Chunk, InterpretError> {
     let bytes: Vec<_> = source.bytes().collect();
     let lexer = Lexer::new(&bytes);
     let mut parser = Parser::new(lexer);
@@ -26,7 +27,15 @@ pub fn compile(source: &str) -> Result<Chunk, InterpretError> {
                 eprintln!("{:?}", ast);
 
                 let mut generator = Generator::new();
-                ast.generate(&mut generator);
+                let dt = ast.data_type.clone();
+                ast.generate(&mut generator, heap);
+                match dt {
+                    Some(DataType::Int) => generator.emit_byte(ByteCode::PrintInt, 0),
+                    Some(DataType::Float) => generator.emit_byte(ByteCode::PrintFloat, 0),
+                    Some(DataType::Str) => generator.emit_byte(ByteCode::PrintStr, 0),
+                    Some(DataType::Bool) => generator.emit_byte(ByteCode::PrintBool, 0),
+                    _ => (),
+                }
                 Ok(generator.end())
             }
             Err(e) => {
@@ -130,6 +139,7 @@ impl<'a> Parser<'a> {
             TokenType::Float => self.float(),
             TokenType::True => AstNode::new(self.previous.line, AstNodeType::BoolLiteral(true)),
             TokenType::False => AstNode::new(self.previous.line, AstNodeType::BoolLiteral(false)),
+            TokenType::Str => self.string(),
             _ => {
                 self.error("Expect expression.");
                 AstNode::new(self.previous.line, AstNodeType::Error)
@@ -174,6 +184,10 @@ impl<'a> Parser<'a> {
             self.previous.line,
             AstNodeType::FloatLiteral(self.previous.source.parse::<f64>().unwrap()),
         )
+    }
+
+    fn string(&self) -> AstNode<'a> {
+        AstNode::new(self.previous.line, AstNodeType::StrLiteral(&self.previous.source[1..self.previous.source.len()-1]))
     }
 
     fn grouping(&mut self) -> AstNode<'a> {
