@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 use crate::lexer::{Lexer, TokenType, Token};
 use crate::chunk::Chunk;
 use crate::common::InterpretError;
-use crate::ast::{AstNode, Operator};
+use crate::ast::{AstNode, AstNodeType, Operator};
 use crate::code_gen::Generator;
 
 pub fn compile(source: &str) -> Result<Chunk, InterpretError> {
@@ -112,7 +112,7 @@ impl <'a> Parser<'a> {
             TokenType::Float => self.float(),
             _ => {
                 self.error("Expect expression.");
-                AstNode::Error
+                AstNode::new(self.previous.line, AstNodeType::Error)
             },
         };
 
@@ -125,7 +125,7 @@ impl <'a> Parser<'a> {
                 | TokenType::Slash => self.binary(node),
                 _ => {
                     self.error("Unreachable no infix parse function");
-                    AstNode::Error
+                    AstNode::new(self.previous.line, AstNodeType::Error)
                 }
             };
         }
@@ -137,11 +137,11 @@ impl <'a> Parser<'a> {
     }
 
     fn integer(&self) -> AstNode<'a> {
-        AstNode::IntLiteral{line: self.previous.line, value: self.previous.source.parse::<u32>().unwrap()}
+        AstNode::new(self.previous.line, AstNodeType::IntLiteral(self.previous.source.parse::<u32>().unwrap()))
     }
 
     fn float(&self) -> AstNode<'a> {
-        AstNode::FloatLiteral{line: self.previous.line, value: self.previous.source.parse::<f32>().unwrap()}
+        AstNode::new(self.previous.line, AstNodeType::FloatLiteral(self.previous.source.parse::<f32>().unwrap()))
     }
 
     fn grouping(&mut self) -> AstNode<'a> {
@@ -157,7 +157,7 @@ impl <'a> Parser<'a> {
         };
         let line = self.previous.line;
         let operand = self.parse_precedence(prefix_precedence(&self.previous.tok_type));
-        AstNode::Unary{line, operator, operand: Box::new(operand)}
+        AstNode::new(line, AstNodeType::Unary(operator, Box::new(operand)))
     }
 
     fn binary(&mut self, lhs: AstNode<'a>) -> AstNode<'a> {
@@ -172,7 +172,7 @@ impl <'a> Parser<'a> {
         let line = self.previous.line;
         let precedence = infix_right_precedence(&self.previous.tok_type);
         let rhs = self.parse_precedence(precedence);
-        AstNode::Binary{line, operator, lhs: Box::new(lhs), rhs: Box::new(rhs)}
+        AstNode::new(line, AstNodeType::Binary(operator, Box::new(lhs), Box::new(rhs)))
     }
 
 
