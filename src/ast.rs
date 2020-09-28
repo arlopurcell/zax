@@ -20,6 +20,9 @@ pub enum AstNodeType<'a> {
     StrLiteral(&'a str),
     Unary(Operator, Box<AstNode<'a>>),
     Binary(Operator, Box<AstNode<'a>>, Box<AstNode<'a>>),
+
+    PrintStatement(Box<AstNode<'a>>),
+    Program(Vec<AstNode<'a>>),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -58,6 +61,20 @@ impl<'a> AstNode<'a> {
 
     pub fn generate(self, generator: &mut Generator, heap: &mut Heap) -> () {
         match self.node_type {
+            AstNodeType::Program(statements) => for statement in statements {
+                statement.generate(generator, heap);
+            }
+            AstNodeType::PrintStatement(e) => {
+                let code = match e.data_type {
+                    Some(DataType::Int) => ByteCode::PrintInt,
+                    Some(DataType::Float) => ByteCode::PrintFloat,
+                    Some(DataType::Bool) => ByteCode::PrintBool,
+                    Some(DataType::Str) => ByteCode::PrintStr,
+                    _ => panic!("Invalid arg type for print statement: {:?}", e.data_type),
+                };
+                e.generate(generator, heap);
+                generator.emit_byte(code, self.line)
+            }
             AstNodeType::IntLiteral(value) => {
                 generator.emit_constant(&value.to_be_bytes(), self.line)
             }
@@ -145,7 +162,7 @@ impl<'a> AstNode<'a> {
                 generator.emit_byte(code, self.line)
             }
 
-            _ => panic!("in implemented code gen"),
+            _ => panic!("unimplemented code gen"),
         }
     }
 
@@ -153,9 +170,14 @@ impl<'a> AstNode<'a> {
         &self,
         substitutions: &'a Vec<TypeConstraint<'a>>,
     ) -> Result<Self, InterpretError> {
-        let data_type = find_type(self, substitutions).ok_or(InterpretError::Compile)?;
+        let data_type = find_type(self, substitutions);
         let mut result = self.clone();
-        result.data_type = Some(data_type);
+        result.data_type = match self.node_type {
+            AstNodeType::Program(_) 
+            | AstNodeType::PrintStatement(_)
+                => data_type,
+            _ => Some(data_type.ok_or(InterpretError::Compile)?)
+        };
         result.node_type = match &self.node_type {
             AstNodeType::Unary(operator, operand) => {
                 let operand = operand.resolve_types(substitutions)?;
@@ -165,6 +187,13 @@ impl<'a> AstNode<'a> {
                 let lhs = lhs.resolve_types(substitutions)?;
                 let rhs = rhs.resolve_types(substitutions)?;
                 AstNodeType::Binary(*operator, Box::new(lhs), Box::new(rhs))
+            }
+            AstNodeType::Program(statements) => {
+                let statements: Result<Vec<_>, _> = statements.iter().map(|s| s.resolve_types(substitutions)).collect();
+                AstNodeType::Program(statements?)
+            }
+            AstNodeType::PrintStatement(e) => {
+                AstNodeType::PrintStatement(Box::new(e.resolve_types(substitutions)?))
             }
             _ => self.node_type.clone(),
         };

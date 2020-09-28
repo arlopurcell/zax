@@ -13,8 +13,7 @@ pub fn compile(source: &str, heap: &mut Heap) -> Result<Chunk, InterpretError> {
     let lexer = Lexer::new(&bytes);
     let mut parser = Parser::new(lexer);
     parser.advance();
-    let ast = parser.expression();
-    parser.consume(TokenType::Eof, "Expect end of expression");
+    let ast = parser.program();
     if parser.had_error {
         Err(InterpretError::Compile)
     } else {
@@ -29,6 +28,7 @@ pub fn compile(source: &str, heap: &mut Heap) -> Result<Chunk, InterpretError> {
                 let mut generator = Generator::new();
                 let dt = ast.data_type.clone();
                 ast.generate(&mut generator, heap);
+                /*
                 match dt {
                     Some(DataType::Int) => generator.emit_byte(ByteCode::PrintInt, 0),
                     Some(DataType::Float) => generator.emit_byte(ByteCode::PrintFloat, 0),
@@ -36,6 +36,7 @@ pub fn compile(source: &str, heap: &mut Heap) -> Result<Chunk, InterpretError> {
                     Some(DataType::Bool) => generator.emit_byte(ByteCode::PrintBool, 0),
                     _ => (),
                 }
+                */
                 Ok(generator.end())
             }
             Err(e) => {
@@ -166,6 +167,47 @@ impl<'a> Parser<'a> {
             };
         }
         node
+    }
+
+    fn program(&mut self) -> AstNode<'a> {
+        let mut statements = Vec::new();
+        while !self.match_tok(TokenType::Eof) {
+            statements.push(self.declaration());
+        }
+        AstNode::new(1, AstNodeType::Program(statements))
+    }
+
+    fn match_tok(&mut self, tok_type: TokenType) -> bool {
+        if !self.check(tok_type) { 
+            false
+        } else {
+            self.advance();
+            true
+        }
+    }
+
+    fn check(&mut self, tok_type: TokenType) -> bool {
+        self.current.tok_type == tok_type
+    }
+
+    fn declaration(&mut self) -> AstNode<'a> {
+        self.statement()
+    }
+
+    fn statement(&mut self) -> AstNode<'a> {
+        if self.match_tok(TokenType::Print) {
+            self.print_statement()
+        } else {
+            self.error("Unknown statement type");
+            AstNode::new(self.previous.line, AstNodeType::Error)
+        }
+    }
+
+    fn print_statement(&mut self) -> AstNode<'a> {
+        let line = self.previous.line;
+        let e = self.expression();
+        self.consume(TokenType::SemiColon, "Expect ';' after print statement.");
+        AstNode::new(line, AstNodeType::PrintStatement(Box::new(e)))
     }
 
     fn expression(&mut self) -> AstNode<'a> {

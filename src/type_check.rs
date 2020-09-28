@@ -350,6 +350,16 @@ fn generate_constraints<'a, 'b>(node: &'a AstNode) -> Result<Vec<TypeConstraint<
             }
         }
         */
+        AstNodeType::Program(statements) => {
+            let mut constraints = Vec::new();
+            for statement in statements.iter() {
+                constraints.append(&mut generate_constraints(statement)?);
+            }
+            Ok(constraints)
+        }
+        AstNodeType::PrintStatement(e) => {
+            Ok(generate_constraints(e)?)
+        }
         AstNodeType::Error => panic!("Unreachable error node in type check"),
     }
 }
