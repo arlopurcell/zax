@@ -20,7 +20,7 @@ impl Generator {
         self.current_chunk_mut().append(code, line)
     }
 
-    pub fn emit_constant(&mut self, value: Value, line: u32) -> () {
+    pub fn emit_constant(&mut self, value: &[u8], line: u32) -> () {
         let constant = self.current_chunk_mut().add_constant(value);
         self.emit_byte(ByteCode::Constant(constant), line)
     }

@@ -151,14 +151,14 @@ impl<'a> Parser<'a> {
     fn integer(&self) -> AstNode<'a> {
         AstNode::new(
             self.previous.line,
-            AstNodeType::IntLiteral(self.previous.source.parse::<u32>().unwrap()),
+            AstNodeType::IntLiteral(self.previous.source.parse::<i64>().unwrap()),
         )
     }
 
     fn float(&self) -> AstNode<'a> {
         AstNode::new(
             self.previous.line,
-            AstNodeType::FloatLiteral(self.previous.source.parse::<f32>().unwrap()),
+            AstNodeType::FloatLiteral(self.previous.source.parse::<f64>().unwrap()),
         )
     }
 

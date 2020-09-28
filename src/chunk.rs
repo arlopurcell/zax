@@ -1,20 +1,28 @@
 use std::convert::TryFrom;
+use std::convert::TryInto;
 
 use crate::value::Value;
 
 pub enum ByteCode {
     Return,
+    PrintInt,
+    PrintFloat,
     Constant(u8),
-    Negate,
-    Add,
-    Sub,
-    Mul,
-    Div,
+    NegateInt,
+    AddInt,
+    SubInt,
+    MulInt,
+    DivInt,
+    NegateFloat,
+    AddFloat,
+    SubFloat,
+    MulFloat,
+    DivFloat,
 }
 
 pub struct Chunk {
     code: Vec<ByteCode>,
-    constants: Vec<Value>,
+    constants: Vec<u8>,
     // TODO save memory by using a run length encoding
     lines: Vec<u32>,
 }
@@ -32,8 +40,9 @@ impl Chunk {
         self.code.get(offset).unwrap()
     }
 
-    pub fn get_constant(&self, constant: &u8) -> &Value {
-        self.constants.get(*constant as usize).unwrap()
+    pub fn get_constant(&self, constant: &u8, length: usize) -> &[u8] {
+        let idx = *constant as usize;
+        &self.constants[idx..idx+length]
     }
 
     pub fn append(&mut self, code: ByteCode, line: u32) -> () {
@@ -41,9 +50,10 @@ impl Chunk {
         self.lines.push(line);
     }
 
-    pub fn add_constant(&mut self, value: Value) -> u8 {
-        self.constants.push(value);
-        u8::try_from(self.constants.len() - 1)
+    pub fn add_constant(&mut self, value: &[u8]) -> u8 {
+        let next_start = self.constants.len();
+        self.constants.extend_from_slice(value);
+        u8::try_from(next_start)
             .ok()
             .expect("Too many constants")
     }
@@ -72,12 +82,19 @@ impl Chunk {
 
         match self.get_code(offset) {
             ByteCode::Return => Chunk::simple_instruction("Return"),
+            ByteCode::PrintInt => Chunk::simple_instruction("PrintInt"),
+            ByteCode::PrintFloat => Chunk::simple_instruction("PrintFloat"),
             ByteCode::Constant(constant) => self.constant_instruction(constant),
-            ByteCode::Negate => Chunk::simple_instruction("Negate"),
-            ByteCode::Add => Chunk::simple_instruction("Add"),
-            ByteCode::Sub => Chunk::simple_instruction("Sub"),
-            ByteCode::Mul => Chunk::simple_instruction("Mul"),
-            ByteCode::Div => Chunk::simple_instruction("Div"),
+            ByteCode::NegateInt => Chunk::simple_instruction("Negate"),
+            ByteCode::AddInt => Chunk::simple_instruction("AddInt"),
+            ByteCode::SubInt => Chunk::simple_instruction("SubInt"),
+            ByteCode::MulInt => Chunk::simple_instruction("MulInt"),
+            ByteCode::DivInt => Chunk::simple_instruction("DivInt"),
+            ByteCode::NegateFloat => Chunk::simple_instruction("NegateFloat"),
+            ByteCode::AddFloat => Chunk::simple_instruction("AddFloat"),
+            ByteCode::SubFloat => Chunk::simple_instruction("SubFloat"),
+            ByteCode::MulFloat => Chunk::simple_instruction("MulFloat"),
+            ByteCode::DivFloat => Chunk::simple_instruction("DivFloat"),
         }
     }
 
@@ -88,12 +105,10 @@ impl Chunk {
 
     #[cfg(feature = "debug-logging")]
     fn constant_instruction(&self, constant: &u8) -> () {
-        print!(
-            "Constant {constant:>width$} ",
-            constant = constant,
-            width = 6
+        println!(
+            "Constant {:>6} {:?}",
+            constant,
+            self.get_constant(constant, 8),
         );
-        self.get_constant(constant).print();
-        println!();
     }
 }

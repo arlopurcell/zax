@@ -14,8 +14,8 @@ pub struct AstNode<'a> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum AstNodeType<'a> {
     Error,
-    IntLiteral(u32),
-    FloatLiteral(f32),
+    IntLiteral(i64),
+    FloatLiteral(f64),
     BoolLiteral(bool),
     StrLiteral(&'a str),
     Unary(Operator, Box<AstNode<'a>>),
@@ -59,15 +59,15 @@ impl<'a> AstNode<'a> {
     pub fn generate(self, generator: &mut Generator) -> () {
         match self.node_type {
             AstNodeType::IntLiteral(value) => {
-                generator.emit_constant(Value::Integer(value as i64), self.line)
+                generator.emit_constant(&value.to_be_bytes(), self.line)
             }
             AstNodeType::FloatLiteral(value) => {
-                generator.emit_constant(Value::Float(value as f64), self.line)
+                generator.emit_constant(&value.to_be_bytes(), self.line)
             }
             AstNodeType::Unary(operator, operand) => {
                 operand.generate(generator);
                 match operator {
-                    Operator::Neg => generator.emit_byte(ByteCode::Negate, self.line),
+                    Operator::Neg => generator.emit_byte(ByteCode::NegateInt, self.line),
                     _ => panic!("Unexpected unary code gen"),
                 }
             }
@@ -75,10 +75,10 @@ impl<'a> AstNode<'a> {
                 lhs.generate(generator);
                 rhs.generate(generator);
                 match operator {
-                    Operator::Add => generator.emit_byte(ByteCode::Add, self.line),
-                    Operator::Sub => generator.emit_byte(ByteCode::Sub, self.line),
-                    Operator::Mul => generator.emit_byte(ByteCode::Mul, self.line),
-                    Operator::Div => generator.emit_byte(ByteCode::Div, self.line),
+                    Operator::Add => generator.emit_byte(ByteCode::AddInt, self.line),
+                    Operator::Sub => generator.emit_byte(ByteCode::SubInt, self.line),
+                    Operator::Mul => generator.emit_byte(ByteCode::MulInt, self.line),
+                    Operator::Div => generator.emit_byte(ByteCode::DivInt, self.line),
                     _ => panic!("Unexpected binary code gen"),
                 }
             }

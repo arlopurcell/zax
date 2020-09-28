@@ -6,7 +6,7 @@ use crate::value::Value;
 pub struct VM {
     pub chunk: Chunk,
     ip: usize,
-    stack: Vec<Value>,
+    stack: Vec<u8>,
 }
 
 impl VM {
@@ -25,6 +25,39 @@ impl VM {
         self.run()
     }
 
+    fn pop_64(&mut self) -> [u8; 8] {
+        [
+            self.stack.pop().unwrap(),
+            self.stack.pop().unwrap(),
+            self.stack.pop().unwrap(),
+            self.stack.pop().unwrap(),
+            self.stack.pop().unwrap(),
+            self.stack.pop().unwrap(),
+            self.stack.pop().unwrap(),
+            self.stack.pop().unwrap(),
+        ]
+    }
+
+    fn pop_int(&mut self) -> i64 {
+        i64::from_le_bytes(self.pop_64())
+    }
+
+    fn pop_float(&mut self) -> f64 {
+        f64::from_le_bytes(self.pop_64())
+    }
+
+    fn push(&mut self, bytes: &[u8]) -> () {
+        self.stack.extend_from_slice(bytes)
+    }
+
+    fn push_int(&mut self, val: i64) -> () {
+        self.push(&val.to_be_bytes())
+    }
+
+    fn push_float(&mut self, val: f64) -> () {
+        self.push(&val.to_be_bytes())
+    }
+
     fn run(&mut self) -> InterpretResult {
         loop {
             let bc = self.chunk.get_code(self.ip);
@@ -33,9 +66,7 @@ impl VM {
             {
                 print!("        ");
                 for slot in self.stack.iter() {
-                    print!("[ ");
-                    slot.print();
-                    print!(" ]");
+                    print!("[ {} ]", slot);
                 }
                 println!();
                 self.chunk.disassemble_instruction(self.ip);
@@ -44,59 +75,67 @@ impl VM {
             self.ip += 1;
             match bc {
                 ByteCode::Return => {
-                    self.stack.pop().unwrap().print();
-                    println!();
-                    return Ok(());
+                    // TODO 
+                    println!("{}", self.pop_int());
+                    return Ok(()) 
+                }
+                ByteCode::PrintInt => {
+                    println!("{}", self.pop_int())
+                }
+                ByteCode::PrintFloat => {
+                    println!("{}", self.pop_float())
                 }
                 ByteCode::Constant(constant) => {
-                    self.stack.push(self.chunk.get_constant(constant).clone());
+                    let constant = self.chunk.get_constant(constant, 8);
+                    self.stack.extend_from_slice(constant)
                 }
-                ByteCode::Negate => {
-                    let result = match self.stack.pop().unwrap() {
-                        Value::Float(v) => Value::Float(-v),
-                        Value::Integer(v) => Value::Integer(-v),
-                    };
-                    self.stack.push(result);
+                ByteCode::NegateInt => {
+                    let arg = self.pop_int();
+                    self.push_int(-arg)
                 }
-                ByteCode::Add => {
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    let result = match (a, b) {
-                        (Value::Float(a), Value::Float(b)) => Value::Float(a + b),
-                        (Value::Integer(a), Value::Integer(b)) => Value::Integer(a + b),
-                        _ => return Err(InterpretError::Bug),
-                    };
-                    self.stack.push(result);
+                ByteCode::NegateFloat => {
+                    let arg = self.pop_float();
+                    self.push_float(-arg)
                 }
-                ByteCode::Sub => {
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    let result = match (a, b) {
-                        (Value::Float(a), Value::Float(b)) => Value::Float(a - b),
-                        (Value::Integer(a), Value::Integer(b)) => Value::Integer(a - b),
-                        _ => return Err(InterpretError::Bug),
-                    };
-                    self.stack.push(result);
+                ByteCode::AddInt => {
+                    let b = self.pop_int();
+                    let a = self.pop_int();
+                    self.push_int(a + b)
                 }
-                ByteCode::Mul => {
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    let result = match (a, b) {
-                        (Value::Float(a), Value::Float(b)) => Value::Float(a * b),
-                        (Value::Integer(a), Value::Integer(b)) => Value::Integer(a * b),
-                        _ => return Err(InterpretError::Bug),
-                    };
-                    self.stack.push(result);
+                ByteCode::AddFloat => {
+                    let b = self.pop_float();
+                    let a = self.pop_float();
+                    self.push_float(a + b)
                 }
-                ByteCode::Div => {
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    let result = match (a, b) {
-                        (Value::Float(a), Value::Float(b)) => Value::Float(a / b),
-                        (Value::Integer(a), Value::Integer(b)) => Value::Integer(a / b),
-                        _ => return Err(InterpretError::Bug),
-                    };
-                    self.stack.push(result);
+                ByteCode::SubInt => {
+                    let b = self.pop_int();
+                    let a = self.pop_int();
+                    self.push_int(a - b)
+                }
+                ByteCode::SubFloat => {
+                    let b = self.pop_float();
+                    let a = self.pop_float();
+                    self.push_float(a - b)
+                }
+                ByteCode::MulInt => {
+                    let b = self.pop_int();
+                    let a = self.pop_int();
+                    self.push_int(a * b)
+                }
+                ByteCode::MulFloat => {
+                    let b = self.pop_float();
+                    let a = self.pop_float();
+                    self.push_float(a * b)
+                }
+                ByteCode::DivInt => {
+                    let b = self.pop_int();
+                    let a = self.pop_int();
+                    self.push_int(a / b)
+                }
+                ByteCode::DivFloat => {
+                    let b = self.pop_float();
+                    let a = self.pop_float();
+                    self.push_float(a / b)
                 }
             }
         }
