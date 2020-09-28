@@ -1,7 +1,7 @@
-use crate::chunk::{Chunk, ByteCode};
-use crate::value::Value;
+use crate::chunk::{ByteCode, Chunk};
+use crate::common::{InterpretError, InterpretResult};
 use crate::compiler::compile;
-use crate::common::{InterpretResult, InterpretError};
+use crate::value::Value;
 
 pub struct VM {
     pub chunk: Chunk,
@@ -17,7 +17,7 @@ impl VM {
             stack: Vec::new(),
         }
     }
-     
+
     pub fn interpret(&mut self, source: &str) -> InterpretResult {
         // TODO rearrange calls so we don't allocate a chunk in new
         self.chunk = compile(source)?;
@@ -47,17 +47,17 @@ impl VM {
                     self.stack.pop().unwrap().print();
                     println!();
                     return Ok(());
-                },
+                }
                 ByteCode::Constant(constant) => {
-                       self.stack.push(self.chunk.get_constant(constant).clone());
-                },
+                    self.stack.push(self.chunk.get_constant(constant).clone());
+                }
                 ByteCode::Negate => {
                     let result = match self.stack.pop().unwrap() {
                         Value::Float(v) => Value::Float(-v),
                         Value::Integer(v) => Value::Integer(-v),
                     };
                     self.stack.push(result);
-                },
+                }
                 ByteCode::Add => {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
@@ -67,7 +67,7 @@ impl VM {
                         _ => return Err(InterpretError::Bug),
                     };
                     self.stack.push(result);
-                },
+                }
                 ByteCode::Sub => {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
@@ -77,7 +77,7 @@ impl VM {
                         _ => return Err(InterpretError::Bug),
                     };
                     self.stack.push(result);
-                },
+                }
                 ByteCode::Mul => {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
@@ -87,7 +87,7 @@ impl VM {
                         _ => return Err(InterpretError::Bug),
                     };
                     self.stack.push(result);
-                },
+                }
                 ByteCode::Div => {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
@@ -97,7 +97,7 @@ impl VM {
                         _ => return Err(InterpretError::Bug),
                     };
                     self.stack.push(result);
-                },
+                }
             }
         }
     }

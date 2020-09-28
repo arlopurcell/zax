@@ -1,6 +1,5 @@
-
 pub struct Lexer<'a> {
-    source: &'a[u8],
+    source: &'a [u8],
     start: usize,
     current: usize,
     line: u32,
@@ -12,36 +11,63 @@ pub struct Token<'a> {
     pub line: u32,
 }
 
-impl <'a> Token<'a>  {
+impl<'a> Token<'a> {
     fn new(tok_type: TokenType, source: &'a str, line: u32) -> Self {
-        Self {tok_type, source, line}
+        Self {
+            tok_type,
+            source,
+            line,
+        }
     }
 }
 
 #[derive(Debug, PartialEq)]
 pub enum TokenType {
-    LeftParen, RightParen,
-    LeftBrace, RightBrace,
-    Comma, Dot, Minus, Plus,
-    SemiColon, Slash, Star,
+    LeftParen,
+    RightParen,
+    LeftBrace,
+    RightBrace,
+    Comma,
+    Dot,
+    Minus,
+    Plus,
+    SemiColon,
+    Slash,
+    Star,
 
-    Bang, BangEqual,
-    Equal, EqualEqual,
-    Greater, GreaterEqual,
-    Less, LessEqual,
+    Bang,
+    BangEqual,
+    Equal,
+    EqualEqual,
+    Greater,
+    GreaterEqual,
+    Less,
+    LessEqual,
 
-    Identifier, Str, Integer, Float,
+    Identifier,
+    Str,
+    Integer,
+    Float,
 
-    And, Else, False,
-    For, Fun, If, In, Or,
+    And,
+    Else,
+    False,
+    For,
+    Fun,
+    If,
+    In,
+    Or,
     Print,
-    Return, True, Let, While,
+    Return,
+    True,
+    Let,
+    While,
 
     Error,
     Eof,
 }
 
-impl <'a> Lexer<'a> {
+impl<'a> Lexer<'a> {
     pub fn new(source: &'a [u8]) -> Self {
         Self {
             source,
@@ -69,10 +95,34 @@ impl <'a> Lexer<'a> {
                 '+' => self.make_token(TokenType::Plus),
                 '/' => self.make_token(TokenType::Slash),
                 '*' => self.make_token(TokenType::Star),
-                '!' => if self.match_char('=') { self.make_token(TokenType::BangEqual) } else { self.make_token(TokenType::Bang) },
-                '=' => if self.match_char('=') { self.make_token(TokenType::EqualEqual) } else { self.make_token(TokenType::Equal) },
-                '<' => if self.match_char('=') { self.make_token(TokenType::LessEqual) } else { self.make_token(TokenType::Less) },
-                '>' => if self.match_char('=') { self.make_token(TokenType::GreaterEqual) } else { self.make_token(TokenType::Greater) },
+                '!' => {
+                    if self.match_char('=') {
+                        self.make_token(TokenType::BangEqual)
+                    } else {
+                        self.make_token(TokenType::Bang)
+                    }
+                }
+                '=' => {
+                    if self.match_char('=') {
+                        self.make_token(TokenType::EqualEqual)
+                    } else {
+                        self.make_token(TokenType::Equal)
+                    }
+                }
+                '<' => {
+                    if self.match_char('=') {
+                        self.make_token(TokenType::LessEqual)
+                    } else {
+                        self.make_token(TokenType::Less)
+                    }
+                }
+                '>' => {
+                    if self.match_char('=') {
+                        self.make_token(TokenType::GreaterEqual)
+                    } else {
+                        self.make_token(TokenType::Greater)
+                    }
+                }
                 '"' => self.string(),
                 c => {
                     if c.is_digit(10) {
@@ -90,20 +140,24 @@ impl <'a> Lexer<'a> {
     fn skip_whitespace(&mut self) -> () {
         loop {
             match self.peek() {
-                ' ' | '\r' | '\t' => {self.current += 1},
+                ' ' | '\r' | '\t' => self.current += 1,
                 '\n' => {
                     self.current += 1;
                     self.line += 1;
-                },
-                '/' => if self.peek_2() == '/' {
-                    // comment until the end of the line
-                    while self.peek() != '\n' && !self.is_at_end() {
-                        self.current += 1;
+                }
+                '/' => {
+                    if self.peek_2() == '/' {
+                        // comment until the end of the line
+                        while self.peek() != '\n' && !self.is_at_end() {
+                            self.current += 1;
+                        }
+                    } else {
+                        break;
                     }
-                } else {
+                }
+                _ => {
                     break;
-                },
-                _ => {break;}
+                }
             }
         }
     }
@@ -115,7 +169,7 @@ impl <'a> Lexer<'a> {
             self.source[self.current].into()
         }
     }
-    
+
     fn peek_2(&self) -> char {
         if self.is_at_end() || self.current + 1 >= self.source.len() {
             '\0'
@@ -145,7 +199,11 @@ impl <'a> Lexer<'a> {
     }
 
     fn make_token(&self, tok_type: TokenType) -> Token<'a> {
-        Token::new(tok_type, &std::str::from_utf8(&self.source[self.start..self.current]).unwrap(), self.line)
+        Token::new(
+            tok_type,
+            &std::str::from_utf8(&self.source[self.start..self.current]).unwrap(),
+            self.line,
+        )
     }
 
     pub fn error_token(&self, message: &'static str) -> Token<'a> {
@@ -202,38 +260,41 @@ impl <'a> Lexer<'a> {
             'r' => self.check_keyword(1, "eturn", TokenType::Return),
             't' => self.check_keyword(1, "rue", TokenType::True),
             'w' => self.check_keyword(1, "hile", TokenType::While),
-            'i' => if self.current - self.start > 1 {
-                match char::from(self.source[self.start + 1]) {
-                    'f' => self.check_keyword(2, "", TokenType::If),
-                    'n' => self.check_keyword(2, "", TokenType::In),
-                    _ => TokenType::Identifier,
+            'i' => {
+                if self.current - self.start > 1 {
+                    match char::from(self.source[self.start + 1]) {
+                        'f' => self.check_keyword(2, "", TokenType::If),
+                        'n' => self.check_keyword(2, "", TokenType::In),
+                        _ => TokenType::Identifier,
+                    }
+                } else {
+                    TokenType::Identifier
                 }
-            } else {
-                TokenType::Identifier
-            },
-            'f' => if self.current - self.start > 1 {
-                match char::from(self.source[self.start + 1]) {
-                    'a' => self.check_keyword(2, "lse", TokenType::False),
-                    'o' => self.check_keyword(2, "r", TokenType::For),
-                    'u' => self.check_keyword(2, "un", TokenType::Fun),
-                    _ => TokenType::Identifier,
+            }
+            'f' => {
+                if self.current - self.start > 1 {
+                    match char::from(self.source[self.start + 1]) {
+                        'a' => self.check_keyword(2, "lse", TokenType::False),
+                        'o' => self.check_keyword(2, "r", TokenType::For),
+                        'u' => self.check_keyword(2, "un", TokenType::Fun),
+                        _ => TokenType::Identifier,
+                    }
+                } else {
+                    TokenType::Identifier
                 }
-            } else {
-                TokenType::Identifier
-            },
+            }
             _ => TokenType::Identifier,
         }
     }
 
     fn check_keyword(&self, start: usize, rest: &'static str, tok_type: TokenType) -> TokenType {
-        if std::str::from_utf8(&self.source[self.start + start..self.start + start + rest.len()]).unwrap() == rest {
+        if std::str::from_utf8(&self.source[self.start + start..self.start + start + rest.len()])
+            .unwrap()
+            == rest
+        {
             tok_type
         } else {
             TokenType::Identifier
         }
     }
 }
-
-
-
-

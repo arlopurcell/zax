@@ -1,13 +1,13 @@
-use crate::code_gen::Generator;
-use crate::value::Value;
 use crate::chunk::ByteCode;
-use crate::type_check::{find_type, TypeConstraint, DataType};
+use crate::code_gen::Generator;
 use crate::common::InterpretError;
+use crate::type_check::{find_type, DataType, TypeConstraint};
+use crate::value::Value;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AstNode<'a> {
     pub line: u32,
-    pub data_type: Option<DataType>, 
+    pub data_type: Option<DataType>,
     pub node_type: AstNodeType<'a>,
 }
 
@@ -24,15 +24,24 @@ pub enum AstNodeType<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Operator {
-    Add, Sub, Mul, Div,
-    And, Or,
-    Equal, NotEqual,
-    Greater, GreaterEqual, Less, LessEqual,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    And,
+    Or,
+    Equal,
+    NotEqual,
+    Greater,
+    GreaterEqual,
+    Less,
+    LessEqual,
 
-    Neg, Not
+    Neg,
+    Not,
 }
 
-impl <'a> AstNode<'a> {
+impl<'a> AstNode<'a> {
     pub fn new(line: u32, node_type: AstNodeType<'a>) -> Self {
         Self {
             line,
@@ -49,15 +58,19 @@ impl <'a> AstNode<'a> {
 
     pub fn generate(self, generator: &mut Generator) -> () {
         match self.node_type {
-            AstNodeType::IntLiteral(value) => generator.emit_constant(Value::Integer(value as i64), self.line),
-            AstNodeType::FloatLiteral(value) => generator.emit_constant(Value::Float(value as f64), self.line),
+            AstNodeType::IntLiteral(value) => {
+                generator.emit_constant(Value::Integer(value as i64), self.line)
+            }
+            AstNodeType::FloatLiteral(value) => {
+                generator.emit_constant(Value::Float(value as f64), self.line)
+            }
             AstNodeType::Unary(operator, operand) => {
                 operand.generate(generator);
                 match operator {
                     Operator::Neg => generator.emit_byte(ByteCode::Negate, self.line),
                     _ => panic!("Unexpected unary code gen"),
                 }
-            },
+            }
             AstNodeType::Binary(operator, lhs, rhs) => {
                 lhs.generate(generator);
                 rhs.generate(generator);
@@ -68,17 +81,19 @@ impl <'a> AstNode<'a> {
                     Operator::Div => generator.emit_byte(ByteCode::Div, self.line),
                     _ => panic!("Unexpected binary code gen"),
                 }
-            },
+            }
 
             _ => panic!("in implemented code gen"),
         }
     }
 
-    pub fn resolve_types(&self, substitutions: &'a Vec<TypeConstraint<'a>>) -> Result<Self, InterpretError> {
+    pub fn resolve_types(
+        &self,
+        substitutions: &'a Vec<TypeConstraint<'a>>,
+    ) -> Result<Self, InterpretError> {
         let data_type = find_type(self, substitutions).ok_or(InterpretError::Compile)?;
         let mut result = self.clone();
         result.data_type = Some(data_type);
         Ok(result)
     }
 }
-

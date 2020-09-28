@@ -1,4 +1,4 @@
-use crate::chunk::{Chunk, ByteCode};
+use crate::chunk::{ByteCode, Chunk};
 use crate::value::Value;
 
 pub struct Generator {
@@ -24,7 +24,7 @@ impl Generator {
         let constant = self.current_chunk_mut().add_constant(value);
         self.emit_byte(ByteCode::Constant(constant), line)
     }
-    
+
     pub fn end(mut self) -> Chunk {
         &mut self.emit_byte(ByteCode::Return, 0);
 

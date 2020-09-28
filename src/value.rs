@@ -1,4 +1,3 @@
-
 #[derive(Clone)]
 pub enum Value {
     Float(f64),

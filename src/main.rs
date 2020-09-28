@@ -1,5 +1,5 @@
-use std::io;
 use std::fs::File;
+use std::io;
 use std::io::prelude::*;
 
 mod ast;
@@ -12,8 +12,8 @@ mod type_check;
 mod value;
 mod vm;
 
+use crate::common::{InterpretError, InterpretResult};
 use crate::vm::VM;
-use crate::common::{InterpretResult, InterpretError};
 
 fn main() -> InterpretResult {
     let vm = VM::new();
@@ -45,6 +45,7 @@ fn repl(mut vm: VM) -> InterpretResult {
 fn run_file(file_name: &str, mut vm: VM) -> InterpretResult {
     let mut file = File::open(file_name).map_err(|_| InterpretError::File)?;
     let mut contents = String::new();
-    file.read_to_string(&mut contents).map_err(|_| InterpretError::File)?;
+    file.read_to_string(&mut contents)
+        .map_err(|_| InterpretError::File)?;
     vm.interpret(&contents)
 }

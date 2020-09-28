@@ -1,7 +1,7 @@
 use std::error;
 use std::fmt;
 
-use crate::ast::{Operator, AstNode, AstNodeType};
+use crate::ast::{AstNode, AstNodeType, Operator};
 
 #[derive(Debug)]
 pub struct TypeConstraint<'a> {
@@ -212,7 +212,9 @@ fn find_type_helper<'a>(
     }
 }
 
-pub fn generate_substitutions<'a, 'b>(node: &'a AstNode<'a>) -> Result<Vec<TypeConstraint<'a>>, TypeError> {
+pub fn generate_substitutions<'a, 'b>(
+    node: &'a AstNode<'a>,
+) -> Result<Vec<TypeConstraint<'a>>, TypeError> {
     let constraints = generate_constraints(node)?;
     unify(constraints)
 }
@@ -279,10 +281,7 @@ fn generate_constraints<'a, 'b>(node: &'a AstNode) -> Result<Vec<TypeConstraint<
                     TypeConstraint::new(TCSide::Expr(a), TCSide::basic(TCNodeType::Bool)),
                     TypeConstraint::new(TCSide::Expr(b), TCSide::basic(TCNodeType::Bool)),
                 ],
-                Operator::Add
-                | Operator::Sub
-                | Operator::Mul
-                | Operator::Div => vec![
+                Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => vec![
                     TypeConstraint::new(TCSide::Expr(node), TCSide::numeric()),
                     TypeConstraint::new(TCSide::Expr(a), TCSide::numeric()),
                     TypeConstraint::new(TCSide::Expr(b), TCSide::numeric()),

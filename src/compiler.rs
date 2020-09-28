@@ -1,10 +1,10 @@
 use std::mem::swap;
 
-use crate::lexer::{Lexer, TokenType, Token};
-use crate::chunk::Chunk;
-use crate::common::InterpretError;
 use crate::ast::{AstNode, AstNodeType, Operator};
+use crate::chunk::Chunk;
 use crate::code_gen::Generator;
+use crate::common::InterpretError;
+use crate::lexer::{Lexer, Token, TokenType};
 use crate::type_check::generate_substitutions;
 
 pub fn compile(source: &str) -> Result<Chunk, InterpretError> {
@@ -24,7 +24,7 @@ pub fn compile(source: &str) -> Result<Chunk, InterpretError> {
                 let mut generator = Generator::new();
                 ast.generate(&mut generator);
                 Ok(generator.end())
-            },
+            }
             Err(e) => {
                 eprintln!("{:?}", e);
                 Err(InterpretError::Compile)
@@ -41,7 +41,7 @@ struct Parser<'a> {
     panic_mode: bool,
 }
 
-impl <'a> Parser<'a> {
+impl<'a> Parser<'a> {
     fn new(lexer: Lexer<'a>) -> Self {
         let current = lexer.error_token("Before start");
         let previous = lexer.error_token("Before start");
@@ -66,9 +66,8 @@ impl <'a> Parser<'a> {
                 } else {
                     print!("   | ");
                 }
-                println!("{:?} '{}'", self.current.tok_type, self.current.source); 
+                println!("{:?} '{}'", self.current.tok_type, self.current.source);
             }
-
 
             if self.current.tok_type != TokenType::Error {
                 break;
@@ -86,13 +85,15 @@ impl <'a> Parser<'a> {
     }
 
     fn error_at_current(&mut self, message: &str) -> () {
-        if self.panic_mode { return } // Silence errors until sync point
+        if self.panic_mode {
+            return;
+        } // Silence errors until sync point
         self.panic_mode = true;
         eprint!("[line {}] Error", self.current.line);
         match self.current.tok_type {
             TokenType::Eof => eprint!(" at end"),
             TokenType::Error => (),
-            _ => eprint!(" at '{}'", self.current.source)
+            _ => eprint!(" at '{}'", self.current.source),
         }
 
         eprintln!(": {}", message);
@@ -100,13 +101,15 @@ impl <'a> Parser<'a> {
     }
 
     fn error(&mut self, message: &str) -> () {
-        if self.panic_mode { return } // Silence errors until sync point
+        if self.panic_mode {
+            return;
+        } // Silence errors until sync point
         self.panic_mode = true;
         eprint!("[line {}] Error", self.previous.line);
         match self.previous.tok_type {
             TokenType::Eof => eprint!(" at end"),
             TokenType::Error => (),
-            _ => eprint!(" at '{}'", self.previous.source)
+            _ => eprint!(" at '{}'", self.previous.source),
         }
 
         eprintln!(": {}", message);
@@ -123,16 +126,15 @@ impl <'a> Parser<'a> {
             _ => {
                 self.error("Expect expression.");
                 AstNode::new(self.previous.line, AstNodeType::Error)
-            },
+            }
         };
 
         while precedence <= infix_left_precedence(&self.current.tok_type) {
             self.advance();
             node = match self.previous.tok_type {
-                TokenType::Plus
-                | TokenType::Minus
-                | TokenType::Star
-                | TokenType::Slash => self.binary(node),
+                TokenType::Plus | TokenType::Minus | TokenType::Star | TokenType::Slash => {
+                    self.binary(node)
+                }
                 _ => {
                     self.error("Unreachable no infix parse function");
                     AstNode::new(self.previous.line, AstNodeType::Error)
@@ -141,17 +143,23 @@ impl <'a> Parser<'a> {
         }
         node
     }
-    
+
     fn expression(&mut self) -> AstNode<'a> {
         self.parse_precedence(Precedence::Base)
     }
 
     fn integer(&self) -> AstNode<'a> {
-        AstNode::new(self.previous.line, AstNodeType::IntLiteral(self.previous.source.parse::<u32>().unwrap()))
+        AstNode::new(
+            self.previous.line,
+            AstNodeType::IntLiteral(self.previous.source.parse::<u32>().unwrap()),
+        )
     }
 
     fn float(&self) -> AstNode<'a> {
-        AstNode::new(self.previous.line, AstNodeType::FloatLiteral(self.previous.source.parse::<f32>().unwrap()))
+        AstNode::new(
+            self.previous.line,
+            AstNodeType::FloatLiteral(self.previous.source.parse::<f32>().unwrap()),
+        )
     }
 
     fn grouping(&mut self) -> AstNode<'a> {
@@ -182,10 +190,11 @@ impl <'a> Parser<'a> {
         let line = self.previous.line;
         let precedence = infix_right_precedence(&self.previous.tok_type);
         let rhs = self.parse_precedence(precedence);
-        AstNode::new(line, AstNodeType::Binary(operator, Box::new(lhs), Box::new(rhs)))
+        AstNode::new(
+            line,
+            AstNodeType::Binary(operator, Box::new(lhs), Box::new(rhs)),
+        )
     }
-
-
 }
 
 fn prefix_precedence(tok_type: &TokenType) -> Precedence {
@@ -241,4 +250,3 @@ enum Precedence {
     PrimaryLeft,
     PrimaryRight,
 }
-
