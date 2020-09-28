@@ -4,13 +4,13 @@ use crate::chunk::ByteCode;
 
 pub enum AstNode<'a> {
     Error,
-    IntLiteral(u32, u32),
-    FloatLiteral(u32, f32),
-    BoolLiteral(u32, bool),
-    StrLiteral(u32, &'a str),
+    IntLiteral{line: u32, value: u32},
+    FloatLiteral{line: u32, value: f32},
+    BoolLiteral{line: u32, value: bool},
+    StrLiteral{line: u32, value: &'a str},
 
-    Unary(u32, Operator, Box<AstNode<'a>>),
-    Binary(u32, Operator, Box<AstNode<'a>>, Box<AstNode<'a>>),
+    Unary{line: u32, operator: Operator, operand: Box<AstNode<'a>>},
+    Binary{line: u32, operator: Operator, lhs: Box<AstNode<'a>>, rhs: Box<AstNode<'a>>},
 }
 
 pub enum Operator {
@@ -25,18 +25,18 @@ pub enum Operator {
 impl <'a> AstNode<'a> {
     pub fn generate(self, generator: &mut Generator) -> () {
         match self {
-            Self::IntLiteral(line, val) => generator.emit_constant(Value::Integer(val as i64), line),
-            Self::FloatLiteral(line, val) => generator.emit_constant(Value::Float(val as f64), line),
-            Self::Unary(line, operator, operand) => {
+            Self::IntLiteral{line, value} => generator.emit_constant(Value::Integer(value as i64), line),
+            Self::FloatLiteral{line, value} => generator.emit_constant(Value::Float(value as f64), line),
+            Self::Unary{line, operator, operand} => {
                 operand.generate(generator);
                 match operator {
                     Operator::Neg => generator.emit_byte(ByteCode::Negate, line),
                     _ => panic!("Unexpected unary code gen"),
                 }
             },
-            Self::Binary(line, operator, a, b) => {
-                a.generate(generator);
-                b.generate(generator);
+            Self::Binary{line, operator, lhs, rhs} => {
+                lhs.generate(generator);
+                rhs.generate(generator);
                 match operator {
                     Operator::Add => generator.emit_byte(ByteCode::Add, line),
                     Operator::Sub => generator.emit_byte(ByteCode::Sub, line),

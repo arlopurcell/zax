@@ -1,4 +1,5 @@
 use std::mem::swap;
+use std::cmp::Ordering;
 
 use crate::lexer::{Lexer, TokenType, Token};
 use crate::chunk::Chunk;
@@ -115,7 +116,7 @@ impl <'a> Parser<'a> {
             },
         };
 
-        while precedence.value() <= infix_left_precedence(&self.current.tok_type).value() {
+        while precedence <= infix_left_precedence(&self.current.tok_type) {
             self.advance();
             node = match self.previous.tok_type {
                 TokenType::Plus
@@ -136,11 +137,11 @@ impl <'a> Parser<'a> {
     }
 
     fn integer(&self) -> AstNode<'a> {
-        AstNode::IntLiteral(self.previous.line, self.previous.source.parse::<u32>().unwrap())
+        AstNode::IntLiteral{line: self.previous.line, value: self.previous.source.parse::<u32>().unwrap()}
     }
 
     fn float(&self) -> AstNode<'a> {
-        AstNode::FloatLiteral(self.previous.line, self.previous.source.parse::<f32>().unwrap())
+        AstNode::FloatLiteral{line: self.previous.line, value: self.previous.source.parse::<f32>().unwrap()}
     }
 
     fn grouping(&mut self) -> AstNode<'a> {
@@ -156,7 +157,7 @@ impl <'a> Parser<'a> {
         };
         let line = self.previous.line;
         let operand = self.parse_precedence(prefix_precedence(&self.previous.tok_type));
-        AstNode::Unary(line, operator, Box::new(operand))
+        AstNode::Unary{line, operator, operand: Box::new(operand)}
     }
 
     fn binary(&mut self, lhs: AstNode<'a>) -> AstNode<'a> {
@@ -171,7 +172,7 @@ impl <'a> Parser<'a> {
         let line = self.previous.line;
         let precedence = infix_right_precedence(&self.previous.tok_type);
         let rhs = self.parse_precedence(precedence);
-        AstNode::Binary(line, operator, Box::new(lhs), Box::new(rhs))
+        AstNode::Binary{line, operator, lhs: Box::new(lhs), rhs: Box::new(rhs)}
     }
 
 
@@ -205,6 +206,7 @@ fn infix_right_precedence(tok_type: &TokenType) -> Precedence {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Precedence {
     Nothing,
     Base,
@@ -229,34 +231,4 @@ enum Precedence {
     PrimaryLeft,
     PrimaryRight,
 }
-
-impl Precedence {
-    fn value(&self) -> u8 {
-        match self {
-            Self::Nothing => 0,
-            Self::Base => 1,
-            Self::AssignmentLeft => 2,
-            Self::AssignmentRight => 3,
-            Self::OrLeft => 4,
-            Self::OrRight => 5,
-            Self::AndLeft => 6,
-            Self::AndRight => 7,
-            Self::EqualityLeft => 8,
-            Self::EqualityRight => 9,
-            Self::ComparisonLeft => 10,
-            Self::ComparisonRight => 11,
-            Self::TermLeft => 12,
-            Self::TermRight => 13,
-            Self::FactorLeft => 14,
-            Self::FactorRight => 15,
-            Self::UnaryLeft => 16,
-            Self::UnaryRight => 17,
-            Self::CallLeft => 18,
-            Self::CallRight => 19,
-            Self::PrimaryLeft => 20,
-            Self::PrimaryRight => 21,
-        }
-    }
-}
-
 
