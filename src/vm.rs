@@ -25,7 +25,7 @@ impl VM {
         self.run()
     }
 
-    fn pop_64(&mut self) -> [u8; 8] {
+    fn pop_bytes_8(&mut self) -> [u8; 8] {
         [
             self.stack.pop().unwrap(),
             self.stack.pop().unwrap(),
@@ -38,16 +38,28 @@ impl VM {
         ]
     }
 
+    fn pop_byte(&mut self) -> u8 {
+        self.stack.pop().unwrap()
+    }
+
+    fn pop_bool(&mut self) -> bool {
+        self.pop_byte() != 0
+    }
+
     fn pop_int(&mut self) -> i64 {
-        i64::from_le_bytes(self.pop_64())
+        i64::from_le_bytes(self.pop_bytes_8())
     }
 
     fn pop_float(&mut self) -> f64 {
-        f64::from_le_bytes(self.pop_64())
+        f64::from_le_bytes(self.pop_bytes_8())
     }
 
     fn push(&mut self, bytes: &[u8]) -> () {
         self.stack.extend_from_slice(bytes)
+    }
+
+    fn push_bool(&mut self, val: bool) -> () {
+        self.push(&[if val {1} else {0}])
     }
 
     fn push_int(&mut self, val: i64) -> () {
@@ -64,7 +76,7 @@ impl VM {
 
             #[cfg(feature = "debug-logging")]
             {
-                print!("        ");
+                print!(" stack: ");
                 for slot in self.stack.iter() {
                     print!("[ {} ]", slot);
                 }
@@ -76,7 +88,8 @@ impl VM {
             match bc {
                 ByteCode::Return => {
                     // TODO 
-                    println!("{}", self.pop_int());
+                    println!("{:?}", self.stack);
+                    self.stack.clear();
                     return Ok(()) 
                 }
                 ByteCode::PrintInt => {
@@ -96,6 +109,10 @@ impl VM {
                 ByteCode::NegateFloat => {
                     let arg = self.pop_float();
                     self.push_float(-arg)
+                }
+                ByteCode::Not => {
+                    let arg = self.pop_bool();
+                    self.push_bool(!arg)
                 }
                 ByteCode::AddInt => {
                     let b = self.pop_int();
@@ -136,6 +153,66 @@ impl VM {
                     let b = self.pop_float();
                     let a = self.pop_float();
                     self.push_float(a / b)
+                }
+                ByteCode::GreaterInt => {
+                    let b = self.pop_int();
+                    let a = self.pop_int();
+                    self.push_bool(a > b)
+                }
+                ByteCode::GreaterFloat => {
+                    let b = self.pop_float();
+                    let a = self.pop_float();
+                    self.push_bool(a > b)
+                }
+                ByteCode::LessInt => {
+                    let b = self.pop_int();
+                    let a = self.pop_int();
+                    self.push_bool(a < b)
+                }
+                ByteCode::LessFloat => {
+                    let b = self.pop_float();
+                    let a = self.pop_float();
+                    self.push_bool(a < b)
+                }
+                ByteCode::GreaterEqualInt => {
+                    let b = self.pop_int();
+                    let a = self.pop_int();
+                    self.push_bool(a >= b)
+                }
+                ByteCode::GreaterEqualFloat => {
+                    let b = self.pop_float();
+                    let a = self.pop_float();
+                    self.push_bool(a >= b)
+                }
+                ByteCode::LessEqualInt => {
+                    let b = self.pop_int();
+                    let a = self.pop_int();
+                    self.push_bool(a <= b)
+                }
+                ByteCode::LessEqualFloat => {
+                    let b = self.pop_float();
+                    let a = self.pop_float();
+                    self.push_bool(a <= b)
+                }
+                ByteCode::Equal8 => {
+                    let b = self.pop_bytes_8();
+                    let a = self.pop_bytes_8();
+                    self.push_bool(a == b);
+                }
+                ByteCode::NotEqual8 => {
+                    let b = self.pop_bytes_8();
+                    let a = self.pop_bytes_8();
+                    self.push_bool(a != b);
+                }
+                ByteCode::Equal1 => {
+                    let b = self.pop_byte();
+                    let a = self.pop_byte();
+                    self.push_bool(a == b);
+                }
+                ByteCode::NotEqual1 => {
+                    let b = self.pop_byte();
+                    let a = self.pop_byte();
+                    self.push_bool(a != b);
                 }
             }
         }

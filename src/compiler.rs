@@ -21,6 +21,10 @@ pub fn compile(source: &str) -> Result<Chunk, InterpretError> {
         match substitutions {
             Ok(substitutions) => {
                 let ast = (&ast).resolve_types(&substitutions)?;
+
+                #[cfg(feature = "debug-logging")]
+                eprintln!("{:?}", ast);
+
                 let mut generator = Generator::new();
                 ast.generate(&mut generator);
                 Ok(generator.end())
@@ -121,8 +125,11 @@ impl<'a> Parser<'a> {
         let mut node = match self.previous.tok_type {
             TokenType::LeftParen => self.grouping(),
             TokenType::Minus => self.unary(),
+            TokenType::Bang => self.unary(),
             TokenType::Integer => self.integer(),
             TokenType::Float => self.float(),
+            TokenType::True => AstNode::new(self.previous.line, AstNodeType::BoolLiteral(true)),
+            TokenType::False => AstNode::new(self.previous.line, AstNodeType::BoolLiteral(false)),
             _ => {
                 self.error("Expect expression.");
                 AstNode::new(self.previous.line, AstNodeType::Error)
@@ -132,9 +139,16 @@ impl<'a> Parser<'a> {
         while precedence <= infix_left_precedence(&self.current.tok_type) {
             self.advance();
             node = match self.previous.tok_type {
-                TokenType::Plus | TokenType::Minus | TokenType::Star | TokenType::Slash => {
-                    self.binary(node)
-                }
+                TokenType::Plus
+                | TokenType::Minus
+                | TokenType::Star
+                | TokenType::Slash
+                | TokenType::Greater
+                | TokenType::GreaterEqual
+                | TokenType::Less
+                | TokenType::LessEqual
+                | TokenType::EqualEqual
+                | TokenType::BangEqual => self.binary(node),
                 _ => {
                     self.error("Unreachable no infix parse function");
                     AstNode::new(self.previous.line, AstNodeType::Error)
@@ -171,6 +185,7 @@ impl<'a> Parser<'a> {
     fn unary(&mut self) -> AstNode<'a> {
         let operator = match self.previous.tok_type {
             TokenType::Minus => Operator::Neg,
+            TokenType::Bang => Operator::Not,
             _ => panic!("Unreachable unary operator"),
         };
         let line = self.previous.line;
@@ -184,6 +199,12 @@ impl<'a> Parser<'a> {
             TokenType::Minus => Operator::Sub,
             TokenType::Slash => Operator::Div,
             TokenType::Star => Operator::Mul,
+            TokenType::Greater => Operator::Greater,
+            TokenType::Less => Operator::Less,
+            TokenType::GreaterEqual => Operator::GreaterEqual,
+            TokenType::LessEqual => Operator::LessEqual,
+            TokenType::EqualEqual => Operator::Equal,
+            TokenType::BangEqual => Operator::NotEqual,
 
             _ => panic!("Unreachable binary operator"),
         };
@@ -201,6 +222,7 @@ fn prefix_precedence(tok_type: &TokenType) -> Precedence {
     match tok_type {
         TokenType::LeftParen => Precedence::Nothing,
         TokenType::Minus => Precedence::UnaryRight,
+        TokenType::Bang => Precedence::UnaryRight,
         _ => Precedence::Nothing,
     }
 }
@@ -211,6 +233,12 @@ fn infix_left_precedence(tok_type: &TokenType) -> Precedence {
         TokenType::Plus => Precedence::TermLeft,
         TokenType::Slash => Precedence::FactorLeft,
         TokenType::Star => Precedence::FactorLeft,
+        TokenType::Greater => Precedence::ComparisonLeft,
+        TokenType::Less => Precedence::ComparisonLeft,
+        TokenType::GreaterEqual => Precedence::ComparisonLeft,
+        TokenType::LessEqual => Precedence::ComparisonLeft,
+        TokenType::EqualEqual => Precedence::EqualityLeft,
+        TokenType::BangEqual => Precedence::EqualityLeft,
         _ => Precedence::Nothing,
     }
 }
@@ -221,6 +249,12 @@ fn infix_right_precedence(tok_type: &TokenType) -> Precedence {
         TokenType::Plus => Precedence::TermRight,
         TokenType::Slash => Precedence::FactorRight,
         TokenType::Star => Precedence::FactorRight,
+        TokenType::Greater => Precedence::ComparisonRight,
+        TokenType::Less => Precedence::ComparisonRight,
+        TokenType::GreaterEqual => Precedence::ComparisonRight,
+        TokenType::LessEqual => Precedence::ComparisonRight,
+        TokenType::EqualEqual => Precedence::EqualityRight,
+        TokenType::BangEqual => Precedence::EqualityRight,
         _ => Precedence::Nothing,
     }
 }

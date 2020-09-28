@@ -3,6 +3,7 @@ use std::convert::TryInto;
 
 use crate::value::Value;
 
+#[derive(Debug)]
 pub enum ByteCode {
     Return,
     PrintInt,
@@ -18,6 +19,19 @@ pub enum ByteCode {
     SubFloat,
     MulFloat,
     DivFloat,
+    Not,
+    GreaterInt,
+    LessInt,
+    GreaterEqualInt,
+    LessEqualInt,
+    GreaterFloat,
+    LessFloat,
+    GreaterEqualFloat,
+    LessEqualFloat,
+    Equal8, //each arg is 8 bytes
+    NotEqual8, //each arg is 8 bytes
+    Equal1,
+    NotEqual1,
 }
 
 pub struct Chunk {
@@ -80,21 +94,10 @@ impl Chunk {
             );
         }
 
-        match self.get_code(offset) {
-            ByteCode::Return => Chunk::simple_instruction("Return"),
-            ByteCode::PrintInt => Chunk::simple_instruction("PrintInt"),
-            ByteCode::PrintFloat => Chunk::simple_instruction("PrintFloat"),
+        let code = self.get_code(offset);
+        match code {
             ByteCode::Constant(constant) => self.constant_instruction(constant),
-            ByteCode::NegateInt => Chunk::simple_instruction("Negate"),
-            ByteCode::AddInt => Chunk::simple_instruction("AddInt"),
-            ByteCode::SubInt => Chunk::simple_instruction("SubInt"),
-            ByteCode::MulInt => Chunk::simple_instruction("MulInt"),
-            ByteCode::DivInt => Chunk::simple_instruction("DivInt"),
-            ByteCode::NegateFloat => Chunk::simple_instruction("NegateFloat"),
-            ByteCode::AddFloat => Chunk::simple_instruction("AddFloat"),
-            ByteCode::SubFloat => Chunk::simple_instruction("SubFloat"),
-            ByteCode::MulFloat => Chunk::simple_instruction("MulFloat"),
-            ByteCode::DivFloat => Chunk::simple_instruction("DivFloat"),
+            _ => println!("{:?}", code),
         }
     }
 
@@ -102,6 +105,7 @@ impl Chunk {
     fn simple_instruction(name: &str) -> () {
         println!("{}", name);
     }
+
 
     #[cfg(feature = "debug-logging")]
     fn constant_instruction(&self, constant: &u8) -> () {

@@ -22,7 +22,7 @@ pub enum AstNodeType<'a> {
     Binary(Operator, Box<AstNode<'a>>, Box<AstNode<'a>>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Operator {
     Add,
     Sub,
@@ -65,22 +65,77 @@ impl<'a> AstNode<'a> {
                 generator.emit_constant(&value.to_be_bytes(), self.line)
             }
             AstNodeType::Unary(operator, operand) => {
-                operand.generate(generator);
-                match operator {
-                    Operator::Neg => generator.emit_byte(ByteCode::NegateInt, self.line),
+                let code = match operator {
+                    Operator::Neg => match &operand.data_type {
+                        Some(DataType::Int) => ByteCode::NegateInt,
+                        Some(DataType::Float) => ByteCode::NegateFloat,
+                        _ => panic!("Invalid type for negate")
+                    }
+                    Operator::Not => ByteCode::Not,
                     _ => panic!("Unexpected unary code gen"),
-                }
+                };
+                operand.generate(generator);
+                generator.emit_byte(code, self.line)
             }
             AstNodeType::Binary(operator, lhs, rhs) => {
+                let code = match operator {
+                    Operator::Add => match &lhs.data_type {
+                        Some(DataType::Int) => ByteCode::AddInt,
+                        Some(DataType::Float) => ByteCode::AddFloat,
+                        _ => panic!("Invalid type for add"),
+                    }
+                    Operator::Sub => match &lhs.data_type {
+                        Some(DataType::Int) => ByteCode::SubInt,
+                        Some(DataType::Float) => ByteCode::SubFloat,
+                        _ => panic!("Invalid type for sub"),
+                    }
+                    Operator::Mul => match &lhs.data_type {
+                        Some(DataType::Int) => ByteCode::MulInt,
+                        Some(DataType::Float) => ByteCode::MulFloat,
+                        _ => panic!("Invalid type for mul"),
+                    }
+                    Operator::Div => match &lhs.data_type {
+                        Some(DataType::Int) => ByteCode::DivInt,
+                        Some(DataType::Float) => ByteCode::DivFloat,
+                        _ => panic!("Invalid type for div"),
+                    }
+                    Operator::Greater => match &lhs.data_type {
+                        Some(DataType::Int) => ByteCode::GreaterInt,
+                        Some(DataType::Float) => ByteCode::GreaterFloat,
+                        _ => panic!("Invalid type for div"),
+                    }
+                    Operator::Less => match &lhs.data_type {
+                        Some(DataType::Int) => ByteCode::LessInt,
+                        Some(DataType::Float) => ByteCode::LessFloat,
+                        _ => panic!("Invalid type for div"),
+                    }
+                    Operator::GreaterEqual => match &lhs.data_type {
+                        Some(DataType::Int) => ByteCode::GreaterEqualInt,
+                        Some(DataType::Float) => ByteCode::GreaterEqualFloat,
+                        _ => panic!("Invalid type for div"),
+                    }
+                    Operator::LessEqual => match &lhs.data_type {
+                        Some(DataType::Int) => ByteCode::LessEqualInt,
+                        Some(DataType::Float) => ByteCode::LessEqualFloat,
+                        _ => panic!("Invalid type for div"),
+                    }
+                    Operator::Equal => match &lhs.data_type {
+                        Some(DataType::Int) => ByteCode::Equal8,
+                        Some(DataType::Float) => ByteCode::Equal8,
+                        Some(DataType::Bool) => ByteCode::Equal1,
+                        _ => panic!("Invalid type for equal"),
+                    }
+                    Operator::NotEqual => match &lhs.data_type {
+                        Some(DataType::Int) => ByteCode::NotEqual8,
+                        Some(DataType::Float) => ByteCode::NotEqual8,
+                        Some(DataType::Bool) => ByteCode::NotEqual1,
+                        _ => panic!("Invalid type for equal"),
+                    }
+                    _ => panic!("Unexpected binary code gen"),
+                };
                 lhs.generate(generator);
                 rhs.generate(generator);
-                match operator {
-                    Operator::Add => generator.emit_byte(ByteCode::AddInt, self.line),
-                    Operator::Sub => generator.emit_byte(ByteCode::SubInt, self.line),
-                    Operator::Mul => generator.emit_byte(ByteCode::MulInt, self.line),
-                    Operator::Div => generator.emit_byte(ByteCode::DivInt, self.line),
-                    _ => panic!("Unexpected binary code gen"),
-                }
+                generator.emit_byte(code, self.line)
             }
 
             _ => panic!("in implemented code gen"),
@@ -94,6 +149,18 @@ impl<'a> AstNode<'a> {
         let data_type = find_type(self, substitutions).ok_or(InterpretError::Compile)?;
         let mut result = self.clone();
         result.data_type = Some(data_type);
+        result.node_type = match &self.node_type {
+            AstNodeType::Unary(operator, operand) => {
+                let operand = operand.resolve_types(substitutions)?;
+                AstNodeType::Unary(*operator, Box::new(operand))
+            }
+            AstNodeType::Binary(operator, lhs, rhs) => {
+                let lhs = lhs.resolve_types(substitutions)?;
+                let rhs = rhs.resolve_types(substitutions)?;
+                AstNodeType::Binary(*operator, Box::new(lhs), Box::new(rhs))
+            }
+            _ => self.node_type.clone(),
+        };
         Ok(result)
     }
 }
