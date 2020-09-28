@@ -1,11 +1,11 @@
 use std::mem::swap;
-use std::cmp::Ordering;
 
 use crate::lexer::{Lexer, TokenType, Token};
 use crate::chunk::Chunk;
 use crate::common::InterpretError;
 use crate::ast::{AstNode, AstNodeType, Operator};
 use crate::code_gen::Generator;
+use crate::type_check::generate_substitutions;
 
 pub fn compile(source: &str) -> Result<Chunk, InterpretError> {
     let bytes: Vec<_> = source.bytes().collect();
@@ -17,9 +17,19 @@ pub fn compile(source: &str) -> Result<Chunk, InterpretError> {
     if parser.had_error {
         Err(InterpretError::Compile)
     } else {
-        let mut generator = Generator::new();
-        ast.generate(&mut generator);
-        Ok(generator.end())
+        let substitutions = generate_substitutions(&ast);
+        match substitutions {
+            Ok(substitutions) => {
+                let ast = (&ast).resolve_types(&substitutions)?;
+                let mut generator = Generator::new();
+                ast.generate(&mut generator);
+                Ok(generator.end())
+            },
+            Err(e) => {
+                eprintln!("{:?}", e);
+                Err(InterpretError::Compile)
+            }
+        }
     }
 }
 

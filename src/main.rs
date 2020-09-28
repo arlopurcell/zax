@@ -8,6 +8,7 @@ mod code_gen;
 mod common;
 mod compiler;
 mod lexer;
+mod type_check;
 mod value;
 mod vm;
 

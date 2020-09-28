@@ -1,13 +1,17 @@
 use crate::code_gen::Generator;
 use crate::value::Value;
 use crate::chunk::ByteCode;
+use crate::type_check::{find_type, TypeConstraint, DataType};
+use crate::common::InterpretError;
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct AstNode<'a> {
-    line: u32,
-    data_type: DataType, 
-    node_type: AstNodeType<'a>,
+    pub line: u32,
+    pub data_type: Option<DataType>, 
+    pub node_type: AstNodeType<'a>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum AstNodeType<'a> {
     Error,
     IntLiteral(u32),
@@ -18,15 +22,7 @@ pub enum AstNodeType<'a> {
     Binary(Operator, Box<AstNode<'a>>, Box<AstNode<'a>>),
 }
 
-pub enum DataType {
-    None,
-    Int,
-    Float,
-    Bool,
-    Str,
-    // TODO Array(Box<NodeType>)
-}
-
+#[derive(Debug, Clone, PartialEq)]
 pub enum Operator {
     Add, Sub, Mul, Div,
     And, Or,
@@ -40,7 +36,13 @@ impl <'a> AstNode<'a> {
     pub fn new(line: u32, node_type: AstNodeType<'a>) -> Self {
         Self {
             line,
-            data_type: DataType::None,
+            data_type: match &node_type {
+                AstNodeType::IntLiteral(_) => Some(DataType::Int),
+                AstNodeType::FloatLiteral(_) => Some(DataType::Float),
+                AstNodeType::BoolLiteral(_) => Some(DataType::Bool),
+                AstNodeType::StrLiteral(_) => Some(DataType::Str),
+                _ => None,
+            },
             node_type,
         }
     }
@@ -70,6 +72,13 @@ impl <'a> AstNode<'a> {
 
             _ => panic!("in implemented code gen"),
         }
+    }
+
+    pub fn resolve_types(&self, substitutions: &'a Vec<TypeConstraint<'a>>) -> Result<Self, InterpretError> {
+        let data_type = find_type(self, substitutions).ok_or(InterpretError::Compile)?;
+        let mut result = self.clone();
+        result.data_type = Some(data_type);
+        Ok(result)
     }
 }
 
