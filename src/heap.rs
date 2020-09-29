@@ -1,3 +1,5 @@
+use std::convert::TryInto;
+
 #[derive(PartialEq, Eq)]
 pub struct Object {
     pub obj_type: ObjType,
@@ -14,8 +16,13 @@ pub struct Heap {
 
 impl Object {
     pub fn new(obj_type: ObjType) -> Self {
-        Self {
-            obj_type
+        Self { obj_type }
+    }
+
+    pub fn to_string(&self) -> &str {
+        match &self.obj_type {
+            ObjType::Str(string) => &string,
+            _ => panic!("object at heap index non-string"),
         }
     }
 }
@@ -36,5 +43,20 @@ impl Heap {
 
     pub fn get(&self, idx: usize) -> &Object {
         self.objects.get(idx).unwrap()
+    }
+
+    pub fn get_with_bytes(&self, idx: &[u8]) -> &Object {
+        eprintln!("getting heap at {:?}", idx);
+        let idx = usize::from_be_bytes(idx.try_into().unwrap());
+        self.get(idx)
+    }
+
+    #[cfg(feature = "debug-logging")]
+    pub fn print(&self) -> () {
+        print!(" heap: ");
+        for slot in self.objects.iter() {
+            print!("[ {} ]", slot.to_string());
+        }
+        println!();
     }
 }

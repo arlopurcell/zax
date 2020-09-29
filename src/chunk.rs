@@ -27,13 +27,21 @@ pub enum ByteCode {
     LessFloat,
     GreaterEqualFloat,
     LessEqualFloat,
-    Equal8, //each arg is 8 bytes
+    Equal8,    //each arg is 8 bytes
     NotEqual8, //each arg is 8 bytes
     Equal1,
     NotEqual1,
     EqualHeap,
     NotEqualHeap,
     Concat,
+    Pop8,
+    Pop1,
+    DefineGlobal1(u8),
+    DefineGlobal8(u8),
+    GetGlobal1(u8),
+    GetGlobal8(u8),
+    SetGlobal1(u8),
+    SetGlobal8(u8),
 }
 
 pub struct Chunk {
@@ -56,9 +64,13 @@ impl Chunk {
         self.code.get(offset).unwrap()
     }
 
+    pub fn get_line(&self, offset: usize) -> &u32 {
+        self.lines.get(offset).unwrap()
+    }
+
     pub fn get_constant(&self, constant: &u8, length: usize) -> &[u8] {
         let idx = *constant as usize;
-        &self.constants[idx..idx+length]
+        &self.constants[idx..idx + length]
     }
 
     pub fn append(&mut self, code: ByteCode, line: u32) -> () {
@@ -69,9 +81,7 @@ impl Chunk {
     pub fn add_constant(&mut self, value: &[u8]) -> u8 {
         let next_start = self.constants.len();
         self.constants.extend_from_slice(value);
-        u8::try_from(next_start)
-            .ok()
-            .expect("Too many constants")
+        u8::try_from(next_start).ok().expect("Too many constants")
     }
 
     #[cfg(feature = "debug-logging")]
@@ -107,7 +117,6 @@ impl Chunk {
     fn simple_instruction(name: &str) -> () {
         println!("{}", name);
     }
-
 
     #[cfg(feature = "debug-logging")]
     fn constant_instruction(&self, constant: &u8) -> () {

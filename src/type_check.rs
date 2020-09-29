@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::error;
 use std::fmt;
 
@@ -27,7 +28,10 @@ impl<'a> TCSide<'a> {
     }
 
     fn add() -> Self {
-        TCSide::Constraint(vec![TCNodeType::Int, TCNodeType::Float, TCNodeType::Str], Vec::new())
+        TCSide::Constraint(
+            vec![TCNodeType::Int, TCNodeType::Float, TCNodeType::Str],
+            Vec::new(),
+        )
     }
 
     fn numeric() -> Self {
@@ -167,18 +171,58 @@ fn get_field_ref_type(
 }
 */
 
+pub struct Scope<'a> {
+    parent: Option<&'a Scope<'a>>,
+    variables: HashMap<String, TCNodeType>,
+}
+
+impl<'a> Scope<'a> {
+    pub fn new(parent: Option<&'a Scope<'a>>) -> Self {
+        Self {
+            parent,
+            variables: HashMap::new(),
+        }
+    }
+
+    fn get(&self, name: &str) -> Option<TCNodeType> {
+        self.variables
+            .get(name)
+            .map(|s| s.clone())
+            .or_else(|| self.parent.and_then(|p| p.get(name)))
+    }
+
+    pub fn insert(&mut self, name: &str, value: TCNodeType) -> () {
+        self.variables.insert(name.to_string(), value);
+    }
+}
+
 pub fn find_type<'a>(
     node: &'a AstNode<'a>,
     substitutions: &'a Vec<TypeConstraint<'a>>,
-) -> Option<DataType> {
+) -> Option<TCNodeType> {
     find_type_helper(&TCSide::Expr(node), substitutions, &mut Vec::new())
+    /*
+        .map(|tc_type| match tc_type {
+        TCNodeType::Int => DataType::Int,
+        TCNodeType::Float => DataType::Float,
+        TCNodeType::Bool => DataType::Bool,
+        TCNodeType::Str => DataType::Str,
+        /* TODO
+           TCNodeType::Array => {
+           let child = children.get(0).unwrap();
+           let inner_type = find_type_helper(&child, substitutions, &mut Vec::new());
+           inner_type.map(|inner_type| NodeType::Array(Box::new(inner_type)))
+           }
+        */
+    })
+           */
 }
 
 fn find_type_helper<'a>(
     target: &'a TCSide<'a>,
     substitutions: &'a Vec<TypeConstraint<'a>>,
     visited: &mut Vec<&'a TCSide<'a>>,
-) -> Option<DataType> {
+) -> Option<TCNodeType> {
     match target {
         TCSide::Expr(node) => substitutions.iter().find_map(|sub| {
             let mut maybe_result = None;
@@ -197,33 +241,22 @@ fn find_type_helper<'a>(
             }
             maybe_result
         }),
-        TCSide::Constraint(types, _children) => {
-            let t = types.get(0).unwrap();
-            match t {
-                TCNodeType::Int => Some(DataType::Int),
-                TCNodeType::Float => Some(DataType::Float),
-                TCNodeType::Bool => Some(DataType::Bool),
-                TCNodeType::Str => Some(DataType::Str),
-                /* TODO
-                TCNodeType::Array => {
-                    let child = children.get(0).unwrap();
-                    let inner_type = find_type_helper(&child, substitutions, &mut Vec::new());
-                    inner_type.map(|inner_type| NodeType::Array(Box::new(inner_type)))
-                }
-                */
-            }
-        }
+        TCSide::Constraint(types, _children) => Some(types.get(0).unwrap().clone()),
     }
 }
 
 pub fn generate_substitutions<'a, 'b>(
     node: &'a AstNode<'a>,
+    scope: &'b mut Scope,
 ) -> Result<Vec<TypeConstraint<'a>>, TypeError> {
-    let constraints = generate_constraints(node)?;
+    let constraints = generate_constraints(node, scope)?;
     unify(constraints)
 }
 
-fn generate_constraints<'a, 'b>(node: &'a AstNode) -> Result<Vec<TypeConstraint<'a>>, TypeError> {
+fn generate_constraints<'a, 'b>(
+    node: &'a AstNode,
+    scope: &'b mut Scope,
+) -> Result<Vec<TypeConstraint<'a>>, TypeError> {
     match &node.node_type {
         AstNodeType::IntLiteral(_) => Ok(vec![TypeConstraint::new(
             TCSide::Expr(node),
@@ -275,7 +308,7 @@ fn generate_constraints<'a, 'b>(node: &'a AstNode) -> Result<Vec<TypeConstraint<
                 ],
                 _ => panic!("Invalid unary operator"),
             };
-            constraints.append(&mut generate_constraints(operand)?);
+            constraints.append(&mut generate_constraints(operand, scope)?);
             Ok(constraints)
         }
         AstNodeType::Binary(operator, a, b) => {
@@ -314,6 +347,11 @@ fn generate_constraints<'a, 'b>(node: &'a AstNode) -> Result<Vec<TypeConstraint<
                     TypeConstraint::new(TCSide::Expr(b), TCSide::numeric()),
                     TypeConstraint::new(TCSide::Expr(a), TCSide::Expr(b)),
                 ],
+                Operator::Assign => vec![
+                    TypeConstraint::new(TCSide::Expr(a), TCSide::Expr(b)),
+                    TypeConstraint::new(TCSide::Expr(node), TCSide::Expr(a)),
+                    TypeConstraint::new(TCSide::Expr(node), TCSide::Expr(b)),
+                ],
                 /* TODO
                 Operator::Lookup => vec![
                     TypeConstraint::new(
@@ -327,8 +365,8 @@ fn generate_constraints<'a, 'b>(node: &'a AstNode) -> Result<Vec<TypeConstraint<
                 _ => panic!("Invalid infix operator"),
             };
 
-            constraints.append(&mut generate_constraints(a)?);
-            constraints.append(&mut generate_constraints(b)?);
+            constraints.append(&mut generate_constraints(a, scope)?);
+            constraints.append(&mut generate_constraints(b, scope)?);
             Ok(constraints)
         }
         /* TODO
@@ -353,12 +391,28 @@ fn generate_constraints<'a, 'b>(node: &'a AstNode) -> Result<Vec<TypeConstraint<
         AstNodeType::Program(statements) => {
             let mut constraints = Vec::new();
             for statement in statements.iter() {
-                constraints.append(&mut generate_constraints(statement)?);
+                constraints.append(&mut generate_constraints(statement, scope)?);
             }
             Ok(constraints)
         }
-        AstNodeType::PrintStatement(e) => {
-            Ok(generate_constraints(e)?)
+        AstNodeType::PrintStatement(e) => Ok(generate_constraints(e, scope)?),
+        AstNodeType::ExpressionStatement(e) => Ok(generate_constraints(e, scope)?),
+        AstNodeType::LetStatement(_, var, e) => {
+            let mut constraints = vec![TypeConstraint::new(TCSide::Expr(var), TCSide::Expr(e))];
+            constraints.append(&mut generate_constraints(e, scope)?);
+            Ok(constraints)
+        }
+
+        AstNodeType::Variable(name) => {
+            let constraints = if let Some(tc_type) = scope.get(name) {
+                vec![TypeConstraint::new(
+                    TCSide::Expr(node),
+                    TCSide::basic(tc_type),
+                )]
+            } else {
+                Vec::new()
+            };
+            Ok(constraints)
         }
         AstNodeType::Error => panic!("Unreachable error node in type check"),
     }

@@ -1,12 +1,12 @@
 use std::mem::swap;
 
 use crate::ast::{AstNode, AstNodeType, Operator};
-use crate::chunk::{Chunk, ByteCode};
+use crate::chunk::{ByteCode, Chunk};
 use crate::code_gen::Generator;
 use crate::common::InterpretError;
-use crate::lexer::{Lexer, Token, TokenType};
-use crate::type_check::{generate_substitutions, DataType};
 use crate::heap::Heap;
+use crate::lexer::{Lexer, Token, TokenType};
+use crate::type_check::{generate_substitutions, Scope};
 
 pub fn compile(source: &str, heap: &mut Heap) -> Result<Chunk, InterpretError> {
     let bytes: Vec<_> = source.bytes().collect();
@@ -17,26 +17,17 @@ pub fn compile(source: &str, heap: &mut Heap) -> Result<Chunk, InterpretError> {
     if parser.had_error {
         Err(InterpretError::Compile)
     } else {
-        let substitutions = generate_substitutions(&ast);
+        let mut scope = Scope::new(None);
+        let substitutions = generate_substitutions(&ast, &mut scope);
         match substitutions {
             Ok(substitutions) => {
-                let ast = (&ast).resolve_types(&substitutions)?;
+                let ast = (&ast).resolve_types(&substitutions, &mut scope)?;
 
                 #[cfg(feature = "debug-logging")]
                 eprintln!("{:?}", ast);
 
                 let mut generator = Generator::new();
-                let dt = ast.data_type.clone();
                 ast.generate(&mut generator, heap);
-                /*
-                match dt {
-                    Some(DataType::Int) => generator.emit_byte(ByteCode::PrintInt, 0),
-                    Some(DataType::Float) => generator.emit_byte(ByteCode::PrintFloat, 0),
-                    Some(DataType::Str) => generator.emit_byte(ByteCode::PrintStr, 0),
-                    Some(DataType::Bool) => generator.emit_byte(ByteCode::PrintBool, 0),
-                    _ => (),
-                }
-                */
                 Ok(generator.end())
             }
             Err(e) => {
@@ -141,6 +132,7 @@ impl<'a> Parser<'a> {
             TokenType::True => AstNode::new(self.previous.line, AstNodeType::BoolLiteral(true)),
             TokenType::False => AstNode::new(self.previous.line, AstNodeType::BoolLiteral(false)),
             TokenType::Str => self.string(),
+            TokenType::Identifier => self.variable(),
             _ => {
                 self.error("Expect expression.");
                 AstNode::new(self.previous.line, AstNodeType::Error)
@@ -159,7 +151,8 @@ impl<'a> Parser<'a> {
                 | TokenType::Less
                 | TokenType::LessEqual
                 | TokenType::EqualEqual
-                | TokenType::BangEqual => self.binary(node),
+                | TokenType::BangEqual
+                | TokenType::Equal => self.binary(node),
                 _ => {
                     self.error("Unreachable no infix parse function");
                     AstNode::new(self.previous.line, AstNodeType::Error)
@@ -178,7 +171,7 @@ impl<'a> Parser<'a> {
     }
 
     fn match_tok(&mut self, tok_type: TokenType) -> bool {
-        if !self.check(tok_type) { 
+        if !self.check(tok_type) {
             false
         } else {
             self.advance();
@@ -190,16 +183,63 @@ impl<'a> Parser<'a> {
         self.current.tok_type == tok_type
     }
 
+    fn synchronize(&mut self) -> () {
+        self.panic_mode = false;
+
+        // Consume tokens until either after a semicolon or before a statement starting token
+        while self.current.tok_type != TokenType::Eof {
+            if self.previous.tok_type == TokenType::SemiColon {
+                break;
+            }
+
+            match self.current.tok_type {
+                TokenType::Fun
+                | TokenType::Let
+                | TokenType::For
+                | TokenType::If
+                | TokenType::While
+                | TokenType::Print
+                | TokenType::Return => break,
+                _ => (),
+            }
+            self.advance();
+        }
+    }
+
     fn declaration(&mut self) -> AstNode<'a> {
-        self.statement()
+        let result = if self.match_tok(TokenType::Let) {
+            self.let_declaration()
+        } else {
+            self.statement()
+        };
+        if self.panic_mode {
+            self.synchronize();
+        }
+        result
+    }
+
+    fn let_declaration(&mut self) -> AstNode<'a> {
+        self.consume(TokenType::Identifier, "Expect variable name");
+        let var_name = self.previous.source;
+        let variable = AstNode::new(self.previous.line, AstNodeType::Variable(var_name));
+        let line = self.previous.line;
+        self.consume(
+            TokenType::Equal,
+            "Variables must be assigned at declaration",
+        );
+        let expression = self.expression();
+        self.consume(TokenType::SemiColon, "Expect ';' after let statement.");
+        AstNode::new(
+            line,
+            AstNodeType::LetStatement(var_name, Box::new(variable), Box::new(expression)),
+        )
     }
 
     fn statement(&mut self) -> AstNode<'a> {
         if self.match_tok(TokenType::Print) {
             self.print_statement()
         } else {
-            self.error("Unknown statement type");
-            AstNode::new(self.previous.line, AstNodeType::Error)
+            self.expression_statement()
         }
     }
 
@@ -208,6 +248,16 @@ impl<'a> Parser<'a> {
         let e = self.expression();
         self.consume(TokenType::SemiColon, "Expect ';' after print statement.");
         AstNode::new(line, AstNodeType::PrintStatement(Box::new(e)))
+    }
+
+    fn expression_statement(&mut self) -> AstNode<'a> {
+        let line = self.previous.line;
+        let e = self.expression();
+        self.consume(
+            TokenType::SemiColon,
+            "Expect ';' after expression statement.",
+        );
+        AstNode::new(line, AstNodeType::ExpressionStatement(Box::new(e)))
     }
 
     fn expression(&mut self) -> AstNode<'a> {
@@ -229,7 +279,17 @@ impl<'a> Parser<'a> {
     }
 
     fn string(&self) -> AstNode<'a> {
-        AstNode::new(self.previous.line, AstNodeType::StrLiteral(&self.previous.source[1..self.previous.source.len()-1]))
+        AstNode::new(
+            self.previous.line,
+            AstNodeType::StrLiteral(&self.previous.source[1..self.previous.source.len() - 1]),
+        )
+    }
+
+    fn variable(&self) -> AstNode<'a> {
+        AstNode::new(
+            self.previous.line,
+            AstNodeType::Variable(&self.previous.source),
+        )
     }
 
     fn grouping(&mut self) -> AstNode<'a> {
@@ -261,6 +321,7 @@ impl<'a> Parser<'a> {
             TokenType::LessEqual => Operator::LessEqual,
             TokenType::EqualEqual => Operator::Equal,
             TokenType::BangEqual => Operator::NotEqual,
+            TokenType::Equal => Operator::Assign,
 
             _ => panic!("Unreachable binary operator"),
         };
@@ -295,6 +356,7 @@ fn infix_left_precedence(tok_type: &TokenType) -> Precedence {
         TokenType::LessEqual => Precedence::ComparisonLeft,
         TokenType::EqualEqual => Precedence::EqualityLeft,
         TokenType::BangEqual => Precedence::EqualityLeft,
+        TokenType::Equal => Precedence::AssignmentLeft,
         _ => Precedence::Nothing,
     }
 }
@@ -311,6 +373,7 @@ fn infix_right_precedence(tok_type: &TokenType) -> Precedence {
         TokenType::LessEqual => Precedence::ComparisonRight,
         TokenType::EqualEqual => Precedence::EqualityRight,
         TokenType::BangEqual => Precedence::EqualityRight,
+        TokenType::Equal => Precedence::AssignmentRight,
         _ => Precedence::Nothing,
     }
 }
@@ -319,8 +382,11 @@ fn infix_right_precedence(tok_type: &TokenType) -> Precedence {
 enum Precedence {
     Nothing,
     Base,
-    AssignmentLeft,
+
+    // Assignment is right associative, so right comes first
     AssignmentRight,
+    AssignmentLeft,
+
     OrLeft,
     OrRight,
     AndLeft,

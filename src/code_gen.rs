@@ -11,7 +11,7 @@ impl Generator {
         }
     }
 
-    fn current_chunk_mut(&mut self) -> &mut Chunk {
+    pub fn current_chunk_mut(&mut self) -> &mut Chunk {
         &mut self.compiling_chunk
     }
 
