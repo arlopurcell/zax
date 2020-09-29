@@ -117,7 +117,7 @@ impl<'a> AstNode<'a> {
                 e.generate_rec(generator, heap, lvalue);
                 generator.emit_byte(code, self.line)
             }
-            AstNodeType::Variable(name) => {
+            AstNodeType::Variable(name) => if !lvalue {
                 let constant = identifier_constant(name, heap, generator);
                 let code = match &self.data_type {
                     Some(DataType::Int) | Some(DataType::Float) | Some(DataType::Str) => {
@@ -216,8 +216,22 @@ impl<'a> AstNode<'a> {
                         Some(DataType::Float) => ByteCode::NotEqual8,
                         Some(DataType::Bool) => ByteCode::NotEqual1,
                         Some(DataType::Str) => ByteCode::NotEqualHeap,
-                        _ => panic!("Invalid type for equal"),
+                        _ => panic!("Invalid type for not equal"),
                     },
+                    Operator::Assign => {
+                        let constant = lhs.get_lvalue_constant(heap, generator);
+                        let code = match &lhs.data_type {
+                            Some(DataType::Int) | Some(DataType::Float) | Some(DataType::Str) => {
+                                ByteCode::SetGlobal8(constant)
+                            }
+                            Some(DataType::Bool) => ByteCode::SetGlobal1(constant),
+                            _ => panic!("Unexpected data type for let statement"),
+                        };
+                        lhs.generate_rec(generator, heap, true);
+                        rhs.generate_rec(generator, heap, lvalue);
+                        generator.emit_byte(code, self.line);
+                        return;
+                    }
                     _ => panic!("Unexpected binary code gen"),
                 };
                 lhs.generate_rec(generator, heap, lvalue);
@@ -226,6 +240,13 @@ impl<'a> AstNode<'a> {
             }
 
             _ => panic!("unimplemented code gen"),
+        }
+    }
+
+    fn get_lvalue_constant(&self, heap: &mut Heap, generator: &mut Generator) -> u8 {
+        match self.node_type {
+            AstNodeType::Variable(name) => identifier_constant(name, heap, generator),
+            _ => panic!("Invalid lvalue"),
         }
     }
 

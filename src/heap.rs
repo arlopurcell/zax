@@ -46,7 +46,6 @@ impl Heap {
     }
 
     pub fn get_with_bytes(&self, idx: &[u8]) -> &Object {
-        eprintln!("getting heap at {:?}", idx);
         let idx = usize::from_be_bytes(idx.try_into().unwrap());
         self.get(idx)
     }

@@ -1,1 +1,4 @@
-print "cow" + "moo";
+let foo = "bar";
+print foo;
+foo = "cow";
+print foo;

@@ -4,13 +4,15 @@ use crate::chunk::{ByteCode, Chunk};
 use crate::common::{InterpretError, InterpretResult};
 use crate::compiler::compile;
 use crate::heap::{Heap, ObjType, Object};
+use crate::type_check::Scope;
 
-pub struct VM {
+pub struct VM<'a> {
     pub chunk: Chunk,
     ip: usize,
     stack: Stack,
     heap: Heap,
     globals: HashMap<String, Vec<u8>>,
+    type_scope: Scope<'a>,
 }
 
 struct Stack(Vec<u8>);
@@ -32,6 +34,14 @@ impl Stack {
 
     fn pop_byte(&mut self) -> u8 {
         self.0.pop().unwrap()
+    }
+
+    fn peek_byte(&self) -> u8 {
+        self.0[self.0.len() - 1]
+    }
+
+    fn peek_bytes_8(&self) -> &[u8] {
+        &self.0[self.0.len() - 8..]
     }
 
     fn pop_bool(&mut self) -> bool {
@@ -63,7 +73,7 @@ impl Stack {
     }
 }
 
-impl VM {
+impl <'a> VM<'a> {
     pub fn new() -> Self {
         Self {
             chunk: Chunk::new(),
@@ -71,12 +81,13 @@ impl VM {
             stack: Stack(Vec::new()),
             heap: Heap::new(),
             globals: HashMap::new(),
+            type_scope: Scope::new(None),
         }
     }
 
     pub fn interpret(&mut self, source: &str) -> InterpretResult {
         // TODO rearrange calls so we don't allocate a chunk in new
-        self.chunk = compile(source, &mut self.heap)?;
+        self.chunk = compile(source, &mut self.heap, &mut self.type_scope)?;
         self.ip = 0;
         self.run()
     }
@@ -301,7 +312,7 @@ impl VM {
                 ByteCode::SetGlobal1(constant) => {
                     let constant = self.chunk.get_constant(constant, 8);
                     let name = self.heap.get_with_bytes(constant).to_string();
-                    let value = vec![self.stack.pop_byte()];
+                    let value = vec![self.stack.peek_byte()];
                     let already_defined = if let None = self.globals.insert(name.to_string(), value)
                     {
                         true
@@ -318,7 +329,7 @@ impl VM {
                 ByteCode::SetGlobal8(constant) => {
                     let constant = self.chunk.get_constant(constant, 8);
                     let name = self.heap.get_with_bytes(constant).to_string();
-                    let value = self.stack.pop_bytes_8().to_vec();
+                    let value = self.stack.peek_bytes_8().to_vec();
                     let already_defined = if let None = self.globals.insert(name.to_string(), value)
                     {
                         true

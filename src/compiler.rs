@@ -1,14 +1,14 @@
 use std::mem::swap;
 
 use crate::ast::{AstNode, AstNodeType, Operator};
-use crate::chunk::{ByteCode, Chunk};
+use crate::chunk::Chunk;
 use crate::code_gen::Generator;
 use crate::common::InterpretError;
 use crate::heap::Heap;
 use crate::lexer::{Lexer, Token, TokenType};
 use crate::type_check::{generate_substitutions, Scope};
 
-pub fn compile(source: &str, heap: &mut Heap) -> Result<Chunk, InterpretError> {
+pub fn compile(source: &str, heap: &mut Heap, mut scope: &mut Scope) -> Result<Chunk, InterpretError> {
     let bytes: Vec<_> = source.bytes().collect();
     let lexer = Lexer::new(&bytes);
     let mut parser = Parser::new(lexer);
@@ -17,7 +17,6 @@ pub fn compile(source: &str, heap: &mut Heap) -> Result<Chunk, InterpretError> {
     if parser.had_error {
         Err(InterpretError::Compile)
     } else {
-        let mut scope = Scope::new(None);
         let substitutions = generate_substitutions(&ast, &mut scope);
         match substitutions {
             Ok(substitutions) => {
