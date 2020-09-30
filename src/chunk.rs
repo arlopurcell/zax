@@ -42,6 +42,10 @@ pub enum ByteCode {
     GetGlobal8(u8),
     SetGlobal1(u8),
     SetGlobal8(u8),
+    GetLocal1(usize),
+    GetLocal8(usize),
+    SetLocal1(usize),
+    SetLocal8(usize),
 }
 
 pub struct Chunk {

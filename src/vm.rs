@@ -71,9 +71,20 @@ impl Stack {
     fn push_float(&mut self, val: f64) -> () {
         self.push(&val.to_be_bytes())
     }
+
+    fn read_at(&self, index: usize, size: usize) -> &[u8] {
+        &self.0[index..index + size]
+    }
+
+    fn write_at(&mut self, index: usize, size: usize, value: &[u8]) -> () {
+        self.0 = self
+            .0
+            .splice(index..index + size, value.into_iter().cloned())
+            .collect();
+    }
 }
 
-impl <'a> VM<'a> {
+impl<'a> VM<'a> {
     pub fn new() -> Self {
         Self {
             chunk: Chunk::new(),
@@ -342,6 +353,21 @@ impl <'a> VM<'a> {
                         self.runtime_error(&format!("Undefined variable {}", name));
                         return Err(InterpretError::Runtime);
                     }
+                }
+                ByteCode::GetLocal1(index) => {
+                    let value = self.stack.read_at(*index, 1).to_vec();
+                    self.stack.push(&value)
+                }
+                ByteCode::GetLocal8(index) => {
+                    let value = self.stack.read_at(*index, 8).to_vec();
+                    self.stack.push(&value)
+                }
+                ByteCode::SetLocal1(index) => {
+                    self.stack.write_at(*index, 1, &[self.stack.peek_byte()])
+                }
+                ByteCode::SetLocal8(index) => {
+                    let value = self.stack.peek_bytes_8().to_vec();
+                    self.stack.write_at(*index, 8, &value)
                 }
             }
         }

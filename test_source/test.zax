@@ -1,4 +1,7 @@
-let foo = "bar";
+let foo = 6;
 print foo;
-foo = "cow";
+{
+    let foo = 7;
+    print foo - 2;
+}
 print foo;

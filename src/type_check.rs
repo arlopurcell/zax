@@ -397,13 +397,21 @@ fn generate_constraints<'a, 'b>(
         }
         AstNodeType::PrintStatement(e) => Ok(generate_constraints(e, scope)?),
         AstNodeType::ExpressionStatement(e) => Ok(generate_constraints(e, scope)?),
-        AstNodeType::LetStatement(_, var, e) => {
-            let mut constraints = vec![TypeConstraint::new(TCSide::Expr(var), TCSide::Expr(e))];
-            constraints.append(&mut generate_constraints(e, scope)?);
+        AstNodeType::DeclareStatement(lhs, rhs) => {
+            let mut constraints = vec![TypeConstraint::new(TCSide::Expr(lhs), TCSide::Expr(rhs))];
+            //constraints.append(&mut generate_constraints(lhs, scope)?);
+            constraints.append(&mut generate_constraints(rhs, scope)?);
             Ok(constraints)
         }
-
-        AstNodeType::Variable(name) => {
+        AstNodeType::Block(statements) => {
+            let mut block_scope = Scope::new(Some(scope));
+            let mut constraints = Vec::new();
+            for statement in statements.iter() {
+                constraints.append(&mut generate_constraints(statement, &mut block_scope)?);
+            }
+            Ok(constraints)
+        }
+        AstNodeType::LocalVariable(_, name) | AstNodeType::GlobalVariable(name) => {
             let constraints = if let Some(tc_type) = scope.get(name) {
                 vec![TypeConstraint::new(
                     TCSide::Expr(node),
