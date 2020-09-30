@@ -77,14 +77,11 @@ impl Stack {
     }
 
     fn write_at(&mut self, index: usize, size: usize, value: &[u8]) -> () {
-        self.0 = self
-            .0
-            .splice(index..index + size, value.into_iter().cloned())
-            .collect();
+        self.0 = self.0.splice(index..index+size, value.into_iter().cloned()).collect();
     }
 }
 
-impl<'a> VM<'a> {
+impl <'a> VM<'a> {
     pub fn new() -> Self {
         Self {
             chunk: Chunk::new(),
@@ -123,7 +120,7 @@ impl<'a> VM<'a> {
     }
 
     fn push_string(&mut self, val: String) -> () {
-        let heap_index = self.heap.allocate(Object::new(ObjType::Str(val)));
+        let heap_index = self.heap.allocate_string(val);
         self.stack.push(&heap_index.to_be_bytes())
     }
 

@@ -131,7 +131,7 @@ impl<'a> AstNode<'a> {
                     // simply allow result of rhs to remain on the stack
                 }
                 _ => panic!("Invalid lhs for let"),
-            },
+            }
             AstNodeType::Block(statements) => {
                 for s in statements {
                     s.generate_rec(generator, heap, false);
@@ -155,30 +155,30 @@ impl<'a> AstNode<'a> {
                 generator.emit_byte(code, self.line)
             }
             */
-            AstNodeType::LocalVariable(index, _) => {
-                if !lvalue {
-                    let code = match &self.data_type {
-                        Some(DataType::Int) | Some(DataType::Float) | Some(DataType::Str) => {
-                            ByteCode::GetLocal8(index)
-                        }
-                        Some(DataType::Bool) => ByteCode::GetLocal1(index),
-                        _ => panic!("Unexpected data type for variable"),
-                    };
-                    generator.emit_byte(code, self.line)
-                }
+            AstNodeType::LocalVariable(index, _) => if !lvalue {
+                let code = match &self.data_type {
+                    Some(DataType::Int) | Some(DataType::Float) | Some(DataType::Str) => {
+                        ByteCode::GetLocal8(index)
+                    }
+                    Some(DataType::Bool) => {
+                        ByteCode::GetLocal1(index)
+                    }
+                    _ => panic!("Unexpected data type for variable"),
+                };
+                generator.emit_byte(code, self.line)
             }
-            AstNodeType::GlobalVariable(name) => {
-                if !lvalue {
-                    let constant = identifier_constant(name, heap, generator);
-                    let code = match &self.data_type {
-                        Some(DataType::Int) | Some(DataType::Float) | Some(DataType::Str) => {
-                            ByteCode::GetGlobal8(constant)
-                        }
-                        Some(DataType::Bool) => ByteCode::GetGlobal1(constant),
-                        _ => panic!("Unexpected data type for variable"),
-                    };
-                    generator.emit_byte(code, self.line)
-                }
+            AstNodeType::GlobalVariable(name) => if !lvalue {
+                let constant = identifier_constant(name, heap, generator);
+                let code = match &self.data_type {
+                    Some(DataType::Int) | Some(DataType::Float) | Some(DataType::Str) => {
+                        ByteCode::GetGlobal8(constant)
+                    }
+                    Some(DataType::Bool) => {
+                        ByteCode::GetGlobal1(constant)
+                    }
+                    _ => panic!("Unexpected data type for variable"),
+                };
+                generator.emit_byte(code, self.line)
             }
             AstNodeType::IntLiteral(value) => {
                 generator.emit_constant(&value.to_be_bytes(), self.line)
@@ -187,7 +187,7 @@ impl<'a> AstNode<'a> {
                 generator.emit_constant(&value.to_be_bytes(), self.line)
             }
             AstNodeType::StrLiteral(value) => {
-                let heap_index = heap.allocate(Object::new(ObjType::Str(value.to_string())));
+                let heap_index = heap.allocate_string(value.to_string());
                 generator.emit_constant(&heap_index.to_be_bytes(), self.line)
             }
             AstNodeType::Unary(operator, operand) => {
@@ -288,47 +288,30 @@ impl<'a> AstNode<'a> {
     fn local_var_bytes(&self, lvalue: bool) -> usize {
         match &self.node_type {
             AstNodeType::DeclareStatement(lhs, rhs) => lhs.local_var_bytes(true),
-            AstNodeType::Program(statements) | AstNodeType::Block(statements) => {
-                statements.iter().map(|s| s.local_var_bytes(false)).sum()
-            }
-            AstNodeType::LocalVariable(_, _) => {
-                if lvalue {
-                    match self.data_type {
-                        Some(DataType::Int) | Some(DataType::Float) | Some(DataType::Str) => 8,
-                        Some(DataType::Bool) => 1,
-                        _ => panic!("unknown type in local var bytes: {:?}", self.data_type),
-                    }
-                } else {
-                    0
+            AstNodeType::Program(statements) 
+            | AstNodeType::Block(statements)
+                => statements.iter().map(|s| s.local_var_bytes(false)).sum(),
+            AstNodeType::LocalVariable(_, _) => if lvalue {
+                match self.data_type {
+                    Some(DataType::Int) | Some(DataType::Float) | Some(DataType::Str) => 8,
+                    Some(DataType::Bool) => 1,
+                    _ => panic!("unknown type in local var bytes: {:?}", self.data_type),
                 }
+            } else {
+                0
             }
             _ => 0,
         }
     }
 
     // TODO clean up the typing here
-    fn get_lvalue_code(
-        &self,
-        heap: &mut Heap,
-        generator: &mut Generator,
-        one_byte: bool,
-    ) -> ByteCode {
+    fn get_lvalue_code(&self, heap: &mut Heap, generator: &mut Generator, one_byte: bool) -> ByteCode {
         match self.node_type {
             AstNodeType::GlobalVariable(name) => {
                 let constant = identifier_constant(name, heap, generator);
-                if one_byte {
-                    ByteCode::SetGlobal1(constant)
-                } else {
-                    ByteCode::SetGlobal8(constant)
-                }
-            }
-            AstNodeType::LocalVariable(index, _) => {
-                if one_byte {
-                    ByteCode::SetLocal1(index)
-                } else {
-                    ByteCode::SetLocal8(index)
-                }
-            }
+                if one_byte {ByteCode::SetGlobal1(constant)} else {ByteCode::SetGlobal8(constant)}
+            },
+            AstNodeType::LocalVariable(index, _) => if one_byte{ByteCode::SetLocal1(index)} else {ByteCode::SetLocal8(index)},
             // TODO for dotted stuff, recurse
             _ => panic!("Invalid lvalue"),
         }
@@ -342,10 +325,9 @@ impl<'a> AstNode<'a> {
         let tc_type = find_type(self, substitutions);
         if let Some(tc_type) = &tc_type {
             match &self.node_type {
-                AstNodeType::LocalVariable(_, name) | AstNodeType::GlobalVariable(name) => {
-                    scope.insert(name, tc_type.clone())
-                }
-                _ => (),
+                AstNodeType::LocalVariable(_, name)
+                | AstNodeType::GlobalVariable(name) => scope.insert(name, tc_type.clone()),
+                _ => ()
             }
         }
         let data_type = tc_type.map(|tc_type| match tc_type {
@@ -411,7 +393,7 @@ impl<'a> AstNode<'a> {
 }
 
 fn identifier_constant(name: &str, heap: &mut Heap, generator: &mut Generator) -> u8 {
-    let heap_index = heap.allocate(Object::new(ObjType::Str(name.to_string())));
+    let heap_index = heap.allocate_string(name.to_string());
     generator
         .current_chunk_mut()
         .add_constant(&heap_index.to_be_bytes())

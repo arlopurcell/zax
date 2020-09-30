@@ -14,6 +14,7 @@ pub enum ObjType {
 pub struct Heap {
     objects: FnvHashMap<usize, Object>,
     counter: usize,
+    interned_strings: FnvHashMap<String, usize>,
 }
 
 impl Object {
@@ -36,6 +37,18 @@ impl Heap {
         Self {
             objects: FnvHashMap::default(),
             counter: 0,
+            interned_strings: FnvHashMap::default(),
+        }
+    }
+
+    pub fn allocate_string(&mut self, s: String) -> usize {
+        if let Some(key) = self.interned_strings.get(&s) {
+            *key
+        } else {
+            let c = s.clone();
+            let key = self.allocate(Object::new(ObjType::Str(s)));
+            self.interned_strings.insert(c, key);
+            key
         }
     }
 
@@ -63,7 +76,7 @@ impl Heap {
     #[cfg(feature = "debug-logging")]
     pub fn print(&self) -> () {
         print!(" heap: ");
-        for slot in self.objects.iter() {
+        for slot in self.objects.values() {
             print!("[ {} ]", slot.to_string());
         }
         println!();
