@@ -1,4 +1,5 @@
 use std::convert::TryInto;
+use fnv::FnvHashMap;
 
 #[derive(PartialEq, Eq)]
 pub struct Object {
@@ -11,7 +12,8 @@ pub enum ObjType {
 }
 
 pub struct Heap {
-    objects: Vec<Object>,
+    objects: FnvHashMap<usize, Object>,
+    counter: usize,
 }
 
 impl Object {
@@ -32,17 +34,25 @@ impl Object {
 impl Heap {
     pub fn new() -> Self {
         Self {
-            objects: Vec::new(),
+            objects: FnvHashMap::default(),
+            counter: 0,
         }
     }
 
     pub fn allocate(&mut self, o: Object) -> usize {
-        self.objects.push(o);
-        self.objects.len() - 1
+        if self.objects.len() >= usize::MAX {
+            panic!("Heap overflow");
+        }
+        while self.objects.contains_key(&self.counter) {
+            let (counter, _) = self.counter.overflowing_add(1);
+            self.counter = counter;
+        }
+        self.objects.insert(self.counter, o);
+        self.counter
     }
 
     pub fn get(&self, idx: usize) -> &Object {
-        self.objects.get(idx).unwrap()
+        self.objects.get(&idx).unwrap()
     }
 
     pub fn get_with_bytes(&self, idx: &[u8]) -> &Object {
