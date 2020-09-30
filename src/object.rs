@@ -15,8 +15,8 @@ pub enum ObjType {
 
 #[derive(PartialEq, Eq)]
 pub struct FunctionObj {
-    pub arity: u8, 
-    pub chunk: Chunk, 
+    pub arity: u8,
+    pub chunk: Chunk,
     pub name: String,
 }
 

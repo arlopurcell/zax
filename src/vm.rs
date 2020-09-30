@@ -4,7 +4,7 @@ use crate::chunk::{ByteCode, Chunk};
 use crate::common::{InterpretError, InterpretResult};
 use crate::compiler::compile;
 use crate::heap::Heap;
-use crate::object::{Object, FunctionObj};
+use crate::object::{FunctionObj, Object};
 use crate::type_check::Scope;
 
 pub struct VM<'a> {
@@ -125,11 +125,14 @@ impl Stack {
     }
 
     fn write_at(&mut self, index: usize, size: usize, value: &[u8]) -> () {
-        self.0 = self.0.splice(index..index+size, value.into_iter().cloned()).collect();
+        self.0 = self
+            .0
+            .splice(index..index + size, value.into_iter().cloned())
+            .collect();
     }
 }
 
-impl <'a> VM<'a> {
+impl<'a> VM<'a> {
     pub fn new() -> Self {
         Self {
             stack: Stack(Vec::new()),
@@ -182,7 +185,13 @@ impl <'a> VM<'a> {
 
     fn run(&mut self) -> InterpretResult {
         loop {
-            let VM{stack, heap: _, globals: _, type_scope: _, frames} = self;
+            let VM {
+                stack,
+                heap: _,
+                globals: _,
+                type_scope: _,
+                frames,
+            } = self;
             //let frames = &mut self.frames;
             let last_index = frames.len() - 1;
             let current_frame = &mut frames[last_index];
@@ -196,7 +205,9 @@ impl <'a> VM<'a> {
                 }
                 println!();
                 self.heap.print();
-                self.current_frame().chunk().disassemble_instruction(self.ip);
+                self.current_frame()
+                    .chunk()
+                    .disassemble_instruction(self.ip);
             }
 
             //self.current_frame_mut().increment_ip();
@@ -417,19 +428,28 @@ impl <'a> VM<'a> {
                     }
                 }
                 ByteCode::GetLocal1(index) => {
-                    let value = self.stack.read_at(index + current_frame.stack_index, 1).to_vec();
+                    let value = self
+                        .stack
+                        .read_at(index + current_frame.stack_index, 1)
+                        .to_vec();
                     self.stack.push(&value)
                 }
                 ByteCode::GetLocal8(index) => {
-                    let value = self.stack.read_at(index + current_frame.stack_index, 8).to_vec();
+                    let value = self
+                        .stack
+                        .read_at(index + current_frame.stack_index, 8)
+                        .to_vec();
                     self.stack.push(&value)
                 }
-                ByteCode::SetLocal1(index) => {
-                    self.stack.write_at(index + current_frame.stack_index, 1, &[self.stack.peek_byte()])
-                }
+                ByteCode::SetLocal1(index) => self.stack.write_at(
+                    index + current_frame.stack_index,
+                    1,
+                    &[self.stack.peek_byte()],
+                ),
                 ByteCode::SetLocal8(index) => {
                     let value = self.stack.peek_bytes_8().to_vec();
-                    self.stack.write_at(index + current_frame.stack_index, 8, &value)
+                    self.stack
+                        .write_at(index + current_frame.stack_index, 8, &value)
                 }
                 ByteCode::JumpIfFalse(offset) => {
                     if !self.stack.peek_bool() {

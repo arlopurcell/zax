@@ -7,9 +7,7 @@ pub struct Generator {
 
 impl Generator {
     pub fn new(function: FunctionObj) -> Self {
-        Self {
-            function
-        }
+        Self { function }
     }
 
     pub fn current_chunk(&self) -> &Chunk {
@@ -35,11 +33,11 @@ impl Generator {
     }
 
     pub fn emit_jump_if_false(&mut self, line: u32) -> usize {
-        self.emit_jump_code(ByteCode::JumpIfFalse(0xffff), line) 
+        self.emit_jump_code(ByteCode::JumpIfFalse(0xffff), line)
     }
 
     pub fn emit_jump(&mut self, line: u32) -> usize {
-        self.emit_jump_code(ByteCode::Jump(0xffff), line) 
+        self.emit_jump_code(ByteCode::Jump(0xffff), line)
     }
 
     fn emit_jump_code(&mut self, code: ByteCode, line: u32) -> usize {

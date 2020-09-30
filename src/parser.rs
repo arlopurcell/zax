@@ -36,7 +36,7 @@ impl<'a> Parser<'a> {
             previous,
             had_error: false,
             panic_mode: false,
-            locals: vec![Local{name: "", depth: 0}], // TODO idk why i'm doing this yet
+            locals: vec![Local { name: "", depth: 0 }], // TODO idk why i'm doing this yet
             scope_depth: 0,
             function: FunctionObj::new(),
             func_type: FunctionType::Script,
@@ -290,7 +290,14 @@ impl<'a> Parser<'a> {
         } else {
             AstNode::new(self.previous.line, AstNodeType::Block(Vec::new()))
         };
-        AstNode::new(line, AstNodeType::IfStatement(Box::new(condition), Box::new(then_block), Box::new(else_block)))
+        AstNode::new(
+            line,
+            AstNodeType::IfStatement(
+                Box::new(condition),
+                Box::new(then_block),
+                Box::new(else_block),
+            ),
+        )
     }
 
     fn while_statement(&mut self) -> AstNode<'a> {
@@ -298,7 +305,10 @@ impl<'a> Parser<'a> {
         let line = self.previous.line;
         self.consume(TokenType::LeftBrace, "Expect '{' after if condition.");
         let loop_block = self.block();
-        AstNode::new(line, AstNodeType::WhileStatement(Box::new(condition), Box::new(loop_block)))
+        AstNode::new(
+            line,
+            AstNodeType::WhileStatement(Box::new(condition), Box::new(loop_block)),
+        )
     }
 
     fn print_statement(&mut self) -> AstNode<'a> {

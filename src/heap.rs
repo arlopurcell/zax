@@ -1,7 +1,7 @@
-use std::convert::TryInto;
 use fnv::FnvHashMap;
+use std::convert::TryInto;
 
-use crate::object::{Object, ObjType, FunctionObj};
+use crate::object::{FunctionObj, ObjType, Object};
 
 pub struct Heap {
     objects: FnvHashMap<usize, Object>,

@@ -412,18 +412,20 @@ fn generate_constraints<'a, 'b>(
             Ok(constraints)
         }
         AstNodeType::IfStatement(condition, then_block, else_block) => {
-            let mut constraints = vec![
-                TypeConstraint::new(TCSide::Expr(condition), TCSide::basic(TCNodeType::Bool)),
-            ];
+            let mut constraints = vec![TypeConstraint::new(
+                TCSide::Expr(condition),
+                TCSide::basic(TCNodeType::Bool),
+            )];
             constraints.append(&mut generate_constraints(condition, scope)?);
             constraints.append(&mut generate_constraints(then_block, scope)?);
             constraints.append(&mut generate_constraints(else_block, scope)?);
             Ok(constraints)
         }
         AstNodeType::WhileStatement(condition, loop_block) => {
-            let mut constraints = vec![
-                TypeConstraint::new(TCSide::Expr(condition), TCSide::basic(TCNodeType::Bool)),
-            ];
+            let mut constraints = vec![TypeConstraint::new(
+                TCSide::Expr(condition),
+                TCSide::basic(TCNodeType::Bool),
+            )];
             constraints.append(&mut generate_constraints(condition, scope)?);
             constraints.append(&mut generate_constraints(loop_block, scope)?);
             Ok(constraints)

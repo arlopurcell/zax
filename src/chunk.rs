@@ -92,7 +92,7 @@ impl Chunk {
         self.constants.extend_from_slice(value);
         u8::try_from(next_start).ok().expect("Too many constants")
     }
-    
+
     pub fn len(&self) -> usize {
         self.code.len()
     }

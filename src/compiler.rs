@@ -2,9 +2,9 @@ use crate::code_gen::Generator;
 use crate::common::InterpretError;
 use crate::heap::Heap;
 use crate::lexer::Lexer;
+use crate::object::FunctionObj;
 use crate::parser::Parser;
 use crate::type_check::{generate_substitutions, Scope};
-use crate::object::FunctionObj;
 
 pub fn compile(
     source: &str,
@@ -39,4 +39,3 @@ pub fn compile(
         }
     }
 }
-
