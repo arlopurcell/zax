@@ -1,22 +1,23 @@
 use crate::chunk::{ByteCode, Chunk};
+use crate::object::FunctionObj;
 
 pub struct Generator {
-    compiling_chunk: Chunk,
+    function: FunctionObj,
 }
 
 impl Generator {
-    pub fn new() -> Self {
+    pub fn new(function: FunctionObj) -> Self {
         Self {
-            compiling_chunk: Chunk::new(),
+            function
         }
     }
 
     pub fn current_chunk(&self) -> &Chunk {
-        &self.compiling_chunk
+        &self.function.chunk
     }
 
     pub fn current_chunk_mut(&mut self) -> &mut Chunk {
-        &mut self.compiling_chunk
+        &mut self.function.chunk
     }
 
     pub fn emit_byte(&mut self, code: ByteCode, line: u32) -> () {
@@ -75,8 +76,8 @@ impl Generator {
         self.emit_byte(ByteCode::Loop(offset), line);
     }
 
-    pub fn end(mut self) -> Chunk {
+    pub fn end(mut self) -> FunctionObj {
         &mut self.emit_byte(ByteCode::Return, 0);
-        self.compiling_chunk
+        self.function
     }
 }

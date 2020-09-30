@@ -3,19 +3,63 @@ use std::collections::HashMap;
 use crate::chunk::{ByteCode, Chunk};
 use crate::common::{InterpretError, InterpretResult};
 use crate::compiler::compile;
-use crate::heap::{Heap, ObjType, Object};
+use crate::heap::Heap;
+use crate::object::{Object, FunctionObj};
 use crate::type_check::Scope;
 
 pub struct VM<'a> {
-    pub chunk: Chunk,
-    ip: usize,
     stack: Stack,
     heap: Heap,
     globals: HashMap<String, Vec<u8>>,
     type_scope: Scope<'a>,
+    frames: Vec<CallFrame>,
 }
 
 struct Stack(Vec<u8>);
+
+struct CallFrame {
+    function: FunctionObj,
+    ip: usize,
+    stack_index: usize,
+}
+
+impl CallFrame {
+    fn new(function: FunctionObj, stack_index: usize) -> Self {
+        Self {
+            function,
+            stack_index,
+            ip: 0,
+        }
+    }
+
+    fn chunk(&self) -> &Chunk {
+        &self.function.chunk
+    }
+
+    fn chunk_mut(&mut self) -> &mut Chunk {
+        &mut self.function.chunk
+    }
+
+    fn get_code(&self) -> &ByteCode {
+        self.function.chunk.get_code(self.ip)
+    }
+
+    fn get_last_line(&self) -> &u32 {
+        self.function.chunk.get_line(self.ip - 1)
+    }
+
+    fn increment_ip(&mut self) -> () {
+        self.ip += 1;
+    }
+
+    fn jump(&mut self, offset: u16) -> () {
+        self.ip += offset as usize;
+    }
+
+    fn back_jump(&mut self, offset: u16) -> () {
+        self.ip -= offset as usize;
+    }
+}
 
 impl Stack {
     fn pop_bytes_8(&mut self) -> [u8; 8] {
@@ -88,25 +132,33 @@ impl Stack {
 impl <'a> VM<'a> {
     pub fn new() -> Self {
         Self {
-            chunk: Chunk::new(),
-            ip: 0,
             stack: Stack(Vec::new()),
             heap: Heap::new(),
             globals: HashMap::new(),
             type_scope: Scope::new(None),
+            frames: Vec::with_capacity(u8::MAX as usize),
         }
     }
 
     pub fn interpret(&mut self, source: &str) -> InterpretResult {
         // TODO rearrange calls so we don't allocate a chunk in new
-        self.chunk = compile(source, &mut self.heap, &mut self.type_scope)?;
-        self.ip = 0;
+        let main_func = compile(source, &mut self.heap, &mut self.type_scope)?;
+        self.frames.push(CallFrame::new(main_func, 0));
         self.run()
+    }
+
+    fn current_frame(&self) -> &CallFrame {
+        &self.frames[self.frames.len() - 1]
+    }
+
+    fn current_frame_mut(&mut self) -> &mut CallFrame {
+        let index = self.frames.len() - 1;
+        &mut self.frames[index]
     }
 
     fn runtime_error(&self, message: &str) -> () {
         eprintln!("{}", message);
-        let line = self.chunk.get_line(self.ip - 1);
+        let line = self.current_frame().get_last_line();
         eprintln!("[line {:>4}] in script", line);
     }
 
@@ -130,7 +182,11 @@ impl <'a> VM<'a> {
 
     fn run(&mut self) -> InterpretResult {
         loop {
-            let bc = self.chunk.get_code(self.ip);
+            let VM{stack, heap: _, globals: _, type_scope: _, frames} = self;
+            //let frames = &mut self.frames;
+            let last_index = frames.len() - 1;
+            let current_frame = &mut frames[last_index];
+            let bc = *current_frame.get_code();
 
             #[cfg(feature = "debug-logging")]
             {
@@ -140,23 +196,24 @@ impl <'a> VM<'a> {
                 }
                 println!();
                 self.heap.print();
-                self.chunk.disassemble_instruction(self.ip);
+                self.current_frame().chunk().disassemble_instruction(self.ip);
             }
 
-            self.ip += 1;
+            //self.current_frame_mut().increment_ip();
+            current_frame.ip += 1;
             match bc {
                 ByteCode::Return => return Ok(()),
                 ByteCode::PrintInt => println!("{}", self.stack.pop_int()),
                 ByteCode::PrintFloat => println!("{}", self.stack.pop_float()),
                 ByteCode::PrintBool => println!("{}", self.stack.pop_bool()),
-                ByteCode::PrintStr => println!("{}", self.pop_heap().to_string()),
+                ByteCode::PrintStr => println!("{}", self.pop_heap().as_string()),
                 ByteCode::Constant1(constant) => {
-                    let constant = self.chunk.get_constant(constant, 1);
-                    self.stack.push(constant)
+                    let constant = current_frame.chunk().get_constant(&constant, 1);
+                    stack.push(constant)
                 }
                 ByteCode::Constant8(constant) => {
-                    let constant = self.chunk.get_constant(constant, 8);
-                    self.stack.push(constant)
+                    let constant = current_frame.chunk().get_constant(&constant, 8);
+                    stack.push(constant)
                 }
                 ByteCode::NegateInt => {
                     let arg = self.stack.pop_int();
@@ -282,8 +339,8 @@ impl <'a> VM<'a> {
                 }
                 ByteCode::Concat => {
                     let (a, b) = self.pop_heap_2();
-                    let mut result = a.to_string().to_string();
-                    result.push_str(b.to_string());
+                    let mut result = a.as_string().to_string();
+                    result.push_str(b.as_string());
                     self.push_string(result);
                 }
                 ByteCode::Pop8 => {
@@ -293,20 +350,20 @@ impl <'a> VM<'a> {
                     self.stack.pop_byte();
                 }
                 ByteCode::DefineGlobal1(constant) => {
-                    let constant = self.chunk.get_constant(constant, 8);
-                    let name = self.heap.get_with_bytes(constant).to_string().to_string();
+                    let constant = self.current_frame().chunk().get_constant(&constant, 8);
+                    let name = self.heap.get_with_bytes(constant).as_string().to_string();
                     let value = vec![self.stack.pop_byte()];
                     self.globals.insert(name, value);
                 }
                 ByteCode::DefineGlobal8(constant) => {
-                    let constant = self.chunk.get_constant(constant, 8);
-                    let name = self.heap.get_with_bytes(constant).to_string().to_string();
+                    let constant = self.current_frame().chunk().get_constant(&constant, 8);
+                    let name = self.heap.get_with_bytes(constant).as_string().to_string();
                     let value = self.stack.pop_bytes_8().to_vec();
                     self.globals.insert(name, value);
                 }
                 ByteCode::GetGlobal1(constant) => {
-                    let constant = self.chunk.get_constant(constant, 8);
-                    let name = self.heap.get_with_bytes(constant).to_string().to_string();
+                    let constant = self.current_frame().chunk().get_constant(&constant, 8);
+                    let name = self.heap.get_with_bytes(constant).as_string().to_string();
                     if let Some(value) = self.globals.get(&name) {
                         self.stack.push(value)
                     } else {
@@ -316,8 +373,8 @@ impl <'a> VM<'a> {
                     }
                 }
                 ByteCode::GetGlobal8(constant) => {
-                    let constant = self.chunk.get_constant(constant, 8);
-                    let name = self.heap.get_with_bytes(constant).to_string();
+                    let constant = self.current_frame().chunk().get_constant(&constant, 8);
+                    let name = self.heap.get_with_bytes(constant).as_string();
                     if let Some(value) = self.globals.get(name) {
                         self.stack.push(value)
                     } else {
@@ -326,8 +383,8 @@ impl <'a> VM<'a> {
                     }
                 }
                 ByteCode::SetGlobal1(constant) => {
-                    let constant = self.chunk.get_constant(constant, 8);
-                    let name = self.heap.get_with_bytes(constant).to_string();
+                    let constant = self.current_frame().chunk().get_constant(&constant, 8);
+                    let name = self.heap.get_with_bytes(constant).as_string();
                     let value = vec![self.stack.peek_byte()];
                     let already_defined = if let None = self.globals.insert(name.to_string(), value)
                     {
@@ -343,8 +400,8 @@ impl <'a> VM<'a> {
                     }
                 }
                 ByteCode::SetGlobal8(constant) => {
-                    let constant = self.chunk.get_constant(constant, 8);
-                    let name = self.heap.get_with_bytes(constant).to_string();
+                    let constant = self.current_frame().chunk().get_constant(&constant, 8);
+                    let name = self.heap.get_with_bytes(constant).as_string();
                     let value = self.stack.peek_bytes_8().to_vec();
                     let already_defined = if let None = self.globals.insert(name.to_string(), value)
                     {
@@ -360,30 +417,30 @@ impl <'a> VM<'a> {
                     }
                 }
                 ByteCode::GetLocal1(index) => {
-                    let value = self.stack.read_at(*index, 1).to_vec();
+                    let value = self.stack.read_at(index + current_frame.stack_index, 1).to_vec();
                     self.stack.push(&value)
                 }
                 ByteCode::GetLocal8(index) => {
-                    let value = self.stack.read_at(*index, 8).to_vec();
+                    let value = self.stack.read_at(index + current_frame.stack_index, 8).to_vec();
                     self.stack.push(&value)
                 }
                 ByteCode::SetLocal1(index) => {
-                    self.stack.write_at(*index, 1, &[self.stack.peek_byte()])
+                    self.stack.write_at(index + current_frame.stack_index, 1, &[self.stack.peek_byte()])
                 }
                 ByteCode::SetLocal8(index) => {
                     let value = self.stack.peek_bytes_8().to_vec();
-                    self.stack.write_at(*index, 8, &value)
+                    self.stack.write_at(index + current_frame.stack_index, 8, &value)
                 }
                 ByteCode::JumpIfFalse(offset) => {
                     if !self.stack.peek_bool() {
-                        self.ip += *offset as usize;
+                        self.current_frame_mut().jump(offset);
                     }
                 }
                 ByteCode::Jump(offset) => {
-                    self.ip += *offset as usize;
+                    self.current_frame_mut().jump(offset);
                 }
                 ByteCode::Loop(offset) => {
-                    self.ip -= *offset as usize;
+                    self.current_frame_mut().back_jump(offset);
                 }
             }
         }

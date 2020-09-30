@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum ByteCode {
     Return,
     PrintInt,
@@ -52,6 +52,7 @@ pub enum ByteCode {
     Loop(u16),
 }
 
+#[derive(PartialEq, Eq)]
 pub struct Chunk {
     code: Vec<ByteCode>,
     constants: Vec<u8>,

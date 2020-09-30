@@ -1,36 +1,13 @@
 use std::convert::TryInto;
 use fnv::FnvHashMap;
 
-#[derive(PartialEq, Eq)]
-pub struct Object {
-    pub obj_type: ObjType,
-}
-
-#[derive(PartialEq, Eq)]
-pub enum ObjType {
-    Str(String),
-}
+use crate::object::{Object, ObjType, FunctionObj};
 
 pub struct Heap {
     objects: FnvHashMap<usize, Object>,
     counter: usize,
     interned_strings: FnvHashMap<String, usize>,
 }
-
-impl Object {
-    pub fn new(obj_type: ObjType) -> Self {
-        Self { obj_type }
-    }
-
-    pub fn to_string(&self) -> &str {
-        match &self.obj_type {
-            ObjType::Str(string) => &string,
-            _ => panic!("object at heap index non-string"),
-        }
-    }
-}
-
-// TODO string interning
 
 impl Heap {
     pub fn new() -> Self {
@@ -46,7 +23,7 @@ impl Heap {
             *key
         } else {
             let c = s.clone();
-            let key = self.allocate(Object::new(ObjType::Str(s)));
+            let key = self.allocate(Object::new(ObjType::Str(Box::new(s))));
             self.interned_strings.insert(c, key);
             key
         }

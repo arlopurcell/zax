@@ -9,6 +9,7 @@ mod common;
 mod compiler;
 mod heap;
 mod lexer;
+mod object;
 mod parser;
 mod type_check;
 mod vm;

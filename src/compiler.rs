@@ -1,21 +1,22 @@
-use crate::chunk::Chunk;
 use crate::code_gen::Generator;
 use crate::common::InterpretError;
 use crate::heap::Heap;
-use crate::lexer::{Lexer, Token};
+use crate::lexer::Lexer;
 use crate::parser::Parser;
 use crate::type_check::{generate_substitutions, Scope};
+use crate::object::FunctionObj;
 
 pub fn compile(
     source: &str,
     heap: &mut Heap,
     mut scope: &mut Scope,
-) -> Result<Chunk, InterpretError> {
+) -> Result<FunctionObj, InterpretError> {
     let bytes: Vec<_> = source.bytes().collect();
     let lexer = Lexer::new(&bytes);
     let mut parser = Parser::new(lexer);
     parser.advance();
     let ast = parser.program();
+    let func = parser.function; // TODO return from parser.program()?
     if parser.had_error {
         Err(InterpretError::Compile)
     } else {
@@ -27,7 +28,7 @@ pub fn compile(
                 #[cfg(feature = "debug-logging")]
                 eprintln!("{:?}", ast);
 
-                let mut generator = Generator::new();
+                let mut generator = Generator::new(func);
                 ast.generate(&mut generator, heap);
                 Ok(generator.end())
             }
@@ -39,12 +40,3 @@ pub fn compile(
     }
 }
 
-pub struct Compiler<'a> {
-    locals: Vec<Local<'a>>,
-    scope_depth: usize,
-}
-
-struct Local<'a> {
-    name: Token<'a>,
-    depth: usize,
-}

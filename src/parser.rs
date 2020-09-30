@@ -2,6 +2,7 @@ use std::mem::swap;
 
 use crate::ast::{AstNode, AstNodeType, Operator};
 use crate::lexer::{Lexer, Token, TokenType};
+use crate::object::FunctionObj;
 
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
@@ -11,11 +12,18 @@ pub struct Parser<'a> {
     panic_mode: bool,
     locals: Vec<Local<'a>>,
     scope_depth: usize,
+    pub function: FunctionObj,
+    func_type: FunctionType,
 }
 
 struct Local<'a> {
     name: &'a str,
     depth: usize,
+}
+
+enum FunctionType {
+    Function,
+    Script,
 }
 
 impl<'a> Parser<'a> {
@@ -28,8 +36,10 @@ impl<'a> Parser<'a> {
             previous,
             had_error: false,
             panic_mode: false,
-            locals: Vec::new(),
+            locals: vec![Local{name: "", depth: 0}], // TODO idk why i'm doing this yet
             scope_depth: 0,
+            function: FunctionObj::new(),
+            func_type: FunctionType::Script,
         }
     }
 
