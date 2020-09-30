@@ -420,6 +420,14 @@ fn generate_constraints<'a, 'b>(
             constraints.append(&mut generate_constraints(else_block, scope)?);
             Ok(constraints)
         }
+        AstNodeType::WhileStatement(condition, loop_block) => {
+            let mut constraints = vec![
+                TypeConstraint::new(TCSide::Expr(condition), TCSide::basic(TCNodeType::Bool)),
+            ];
+            constraints.append(&mut generate_constraints(condition, scope)?);
+            constraints.append(&mut generate_constraints(loop_block, scope)?);
+            Ok(constraints)
+        }
         AstNodeType::LocalVariable(_, name) | AstNodeType::GlobalVariable(name) => {
             let constraints = if let Some(tc_type) = scope.get(name) {
                 vec![TypeConstraint::new(

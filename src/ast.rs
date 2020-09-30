@@ -30,7 +30,7 @@ pub enum AstNodeType<'a> {
     GlobalVariable(&'a str),
     LocalVariable(usize, &'a str),
 
-    //LetStatement(&'a str, Box<AstNode<'a>>, Box<AstNode<'a>>),
+    WhileStatement(Box<AstNode<'a>>, Box<AstNode<'a>>),
     DeclareStatement(Box<AstNode<'a>>, Box<AstNode<'a>>),
     PrintStatement(Box<AstNode<'a>>),
     ExpressionStatement(Box<AstNode<'a>>),
@@ -155,6 +155,16 @@ impl<'a> AstNode<'a> {
                 generator.emit_byte(ByteCode::Pop1, self.line); // pop condition
                 else_block.generate(generator, heap);
                 generator.patch_jump(else_jump);
+            }
+            AstNodeType::WhileStatement(condition, loop_block) => {
+                let loop_start = generator.loop_start();
+                condition.generate(generator, heap);
+                let exit_jump = generator.emit_jump_if_false(self.line);
+                generator.emit_byte(ByteCode::Pop1, self.line); // pop condition
+                loop_block.generate(generator, heap);
+                generator.emit_loop(loop_start, self.line);
+                generator.patch_jump(exit_jump);
+                generator.emit_byte(ByteCode::Pop1, self.line); // pop condition
             }
             AstNodeType::LocalVariable(index, _) => if !lvalue {
                 let code = match &self.data_type {
@@ -376,6 +386,7 @@ impl<'a> AstNode<'a> {
             | AstNodeType::ExpressionStatement(_)
             | AstNodeType::Block(_)
             | AstNodeType::IfStatement(_, _, _)
+            | AstNodeType::WhileStatement(_, _)
             | AstNodeType::DeclareStatement(_, _) => data_type,
             _ => {
                 if data_type.is_some() {
@@ -424,6 +435,10 @@ impl<'a> AstNode<'a> {
                 Box::new(condition.resolve_types(substitutions, scope)?),
                 Box::new(then_block.resolve_types(substitutions, scope)?),
                 Box::new(else_block.resolve_types(substitutions, scope)?),
+            ),
+            AstNodeType::WhileStatement(condition, loop_block) => AstNodeType::WhileStatement(
+                Box::new(condition.resolve_types(substitutions, scope)?),
+                Box::new(loop_block.resolve_types(substitutions, scope)?),
             ),
             _ => self.node_type.clone(),
         };

@@ -11,8 +11,8 @@ impl Generator {
         }
     }
 
-    pub fn current_chunk(&mut self) -> &mut Chunk {
-        &mut self.compiling_chunk
+    pub fn current_chunk(&self) -> &Chunk {
+        &self.compiling_chunk
     }
 
     pub fn current_chunk_mut(&mut self) -> &mut Chunk {
@@ -58,6 +58,21 @@ impl Generator {
         }
 
         chunk.patch_jump(index, jump)
+    }
+
+    pub fn loop_start(&self) -> usize {
+        self.current_chunk().len() - 1
+    }
+
+    pub fn emit_loop(&mut self, loop_start: usize, line: u32) -> () {
+        let offset = (self.current_chunk().len() - loop_start) as u16;
+
+        if offset > u16::MAX {
+            // TODO make compiler error
+            panic!("too much code to loop over");
+        }
+
+        self.emit_byte(ByteCode::Loop(offset), line);
     }
 
     pub fn end(mut self) -> Chunk {

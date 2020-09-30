@@ -49,6 +49,7 @@ pub enum ByteCode {
     SetLocal8(usize),
     JumpIfFalse(u16),
     Jump(u16),
+    Loop(u16),
 }
 
 pub struct Chunk {
@@ -125,24 +126,6 @@ impl Chunk {
             );
         }
 
-        let code = self.get_code(offset);
-        match code {
-            ByteCode::Constant(constant) => self.constant_instruction(constant),
-            _ => println!("{:?}", code),
-        }
-    }
-
-    #[cfg(feature = "debug-logging")]
-    fn simple_instruction(name: &str) -> () {
-        println!("{}", name);
-    }
-
-    #[cfg(feature = "debug-logging")]
-    fn constant_instruction(&self, constant: &u8) -> () {
-        println!(
-            "Constant {:>6} {:?}",
-            constant,
-            self.get_constant(constant, 8),
-        );
+        println!("{:?}", self.get_code(offset));
     }
 }

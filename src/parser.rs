@@ -232,6 +232,8 @@ impl<'a> Parser<'a> {
             self.print_statement()
         } else if self.match_tok(TokenType::If) {
             self.if_statement()
+        } else if self.match_tok(TokenType::While) {
+            self.while_statement()
         } else if self.match_tok(TokenType::LeftBrace) {
             self.begin_scope();
             let block = self.block();
@@ -279,6 +281,14 @@ impl<'a> Parser<'a> {
             AstNode::new(self.previous.line, AstNodeType::Block(Vec::new()))
         };
         AstNode::new(line, AstNodeType::IfStatement(Box::new(condition), Box::new(then_block), Box::new(else_block)))
+    }
+
+    fn while_statement(&mut self) -> AstNode<'a> {
+        let condition = self.expression();
+        let line = self.previous.line;
+        self.consume(TokenType::LeftBrace, "Expect '{' after if condition.");
+        let loop_block = self.block();
+        AstNode::new(line, AstNodeType::WhileStatement(Box::new(condition), Box::new(loop_block)))
     }
 
     fn print_statement(&mut self) -> AstNode<'a> {

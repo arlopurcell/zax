@@ -382,6 +382,9 @@ impl <'a> VM<'a> {
                 ByteCode::Jump(offset) => {
                     self.ip += *offset as usize;
                 }
+                ByteCode::Loop(offset) => {
+                    self.ip -= *offset as usize;
+                }
             }
         }
     }
