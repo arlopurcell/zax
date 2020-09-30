@@ -48,6 +48,10 @@ impl Stack {
         self.pop_byte() != 0
     }
 
+    fn peek_bool(&self) -> bool {
+        self.peek_byte() != 0
+    }
+
     fn pop_int(&mut self) -> i64 {
         i64::from_be_bytes(self.pop_bytes_8())
     }
@@ -146,7 +150,11 @@ impl <'a> VM<'a> {
                 ByteCode::PrintFloat => println!("{}", self.stack.pop_float()),
                 ByteCode::PrintBool => println!("{}", self.stack.pop_bool()),
                 ByteCode::PrintStr => println!("{}", self.pop_heap().to_string()),
-                ByteCode::Constant(constant) => {
+                ByteCode::Constant1(constant) => {
+                    let constant = self.chunk.get_constant(constant, 1);
+                    self.stack.push(constant)
+                }
+                ByteCode::Constant8(constant) => {
                     let constant = self.chunk.get_constant(constant, 8);
                     self.stack.push(constant)
                 }
@@ -365,6 +373,14 @@ impl <'a> VM<'a> {
                 ByteCode::SetLocal8(index) => {
                     let value = self.stack.peek_bytes_8().to_vec();
                     self.stack.write_at(*index, 8, &value)
+                }
+                ByteCode::JumpIfFalse(offset) => {
+                    if !self.stack.peek_bool() {
+                        self.ip += *offset as usize;
+                    }
+                }
+                ByteCode::Jump(offset) => {
+                    self.ip += *offset as usize;
                 }
             }
         }

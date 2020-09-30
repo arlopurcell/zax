@@ -7,7 +7,8 @@ pub enum ByteCode {
     PrintFloat,
     PrintBool,
     PrintStr,
-    Constant(u8),
+    Constant1(u8),
+    Constant8(u8),
     NegateInt,
     AddInt,
     SubInt,
@@ -46,6 +47,8 @@ pub enum ByteCode {
     GetLocal8(usize),
     SetLocal1(usize),
     SetLocal8(usize),
+    JumpIfFalse(u16),
+    Jump(u16),
 }
 
 pub struct Chunk {
@@ -86,6 +89,18 @@ impl Chunk {
         let next_start = self.constants.len();
         self.constants.extend_from_slice(value);
         u8::try_from(next_start).ok().expect("Too many constants")
+    }
+    
+    pub fn len(&self) -> usize {
+        self.code.len()
+    }
+
+    pub fn patch_jump(&mut self, index: usize, offset: u16) -> () {
+        self.code[index] = match self.code[index] {
+            ByteCode::JumpIfFalse(_) => ByteCode::JumpIfFalse(offset),
+            ByteCode::Jump(_) => ByteCode::Jump(offset),
+            _ => panic!("Invalid tried to patch non-jump bytecode"),
+        }
     }
 
     #[cfg(feature = "debug-logging")]

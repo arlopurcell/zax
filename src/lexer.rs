@@ -95,6 +95,20 @@ impl<'a> Lexer<'a> {
                 '+' => self.make_token(TokenType::Plus),
                 '/' => self.make_token(TokenType::Slash),
                 '*' => self.make_token(TokenType::Star),
+                '&' => {
+                    if self.match_char('&') {
+                        self.make_token(TokenType::And)
+                    } else {
+                        self.error_token("No '&' operator. Perhaps you meant '&&'")
+                    }
+                }
+                '|' => {
+                    if self.match_char('|') {
+                        self.make_token(TokenType::Or)
+                    } else {
+                        self.error_token("No '|' operator. Perhaps you meant '||'")
+                    }
+                }
                 '!' => {
                     if self.match_char('=') {
                         self.make_token(TokenType::BangEqual)

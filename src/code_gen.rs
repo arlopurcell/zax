@@ -11,6 +11,10 @@ impl Generator {
         }
     }
 
+    pub fn current_chunk(&mut self) -> &mut Chunk {
+        &mut self.compiling_chunk
+    }
+
     pub fn current_chunk_mut(&mut self) -> &mut Chunk {
         &mut self.compiling_chunk
     }
@@ -19,19 +23,45 @@ impl Generator {
         self.current_chunk_mut().append(code, line)
     }
 
-    pub fn emit_constant(&mut self, value: &[u8], line: u32) -> () {
+    pub fn emit_constant_1(&mut self, value: u8, line: u32) -> () {
+        let constant = self.current_chunk_mut().add_constant(&[value]);
+        self.emit_byte(ByteCode::Constant1(constant), line)
+    }
+
+    pub fn emit_constant_8(&mut self, value: &[u8], line: u32) -> () {
         let constant = self.current_chunk_mut().add_constant(value);
-        self.emit_byte(ByteCode::Constant(constant), line)
+        self.emit_byte(ByteCode::Constant8(constant), line)
+    }
+
+    pub fn emit_jump_if_false(&mut self, line: u32) -> usize {
+        self.emit_jump_code(ByteCode::JumpIfFalse(0xffff), line) 
+    }
+
+    pub fn emit_jump(&mut self, line: u32) -> usize {
+        self.emit_jump_code(ByteCode::Jump(0xffff), line) 
+    }
+
+    fn emit_jump_code(&mut self, code: ByteCode, line: u32) -> usize {
+        self.emit_byte(code, line);
+        // -1 to get the index of the last element
+        self.current_chunk().len() - 1
+    }
+
+    pub fn patch_jump(&mut self, index: usize) -> () {
+        let chunk = self.current_chunk_mut();
+        // calculate offset from absolute index
+        let jump = (chunk.len() - 1 - index) as u16;
+
+        if jump > u16::MAX {
+            // TODO make compiler error
+            panic!("too much code to jump over");
+        }
+
+        chunk.patch_jump(index, jump)
     }
 
     pub fn end(mut self) -> Chunk {
         &mut self.emit_byte(ByteCode::Return, 0);
-
-        /*
-        #[cfg(feature = "debug-print-code")]
-        self.compiling_chunk.disassemble("code");
-        */
-
         self.compiling_chunk
     }
 }

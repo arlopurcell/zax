@@ -126,6 +126,8 @@ impl<'a> Parser<'a> {
                 | TokenType::LessEqual
                 | TokenType::EqualEqual
                 | TokenType::BangEqual
+                | TokenType::And
+                | TokenType::Or
                 | TokenType::Equal => self.binary(node),
                 _ => {
                     self.error("Unreachable no infix parse function");
@@ -228,6 +230,8 @@ impl<'a> Parser<'a> {
     fn statement(&mut self) -> AstNode<'a> {
         if self.match_tok(TokenType::Print) {
             self.print_statement()
+        } else if self.match_tok(TokenType::If) {
+            self.if_statement()
         } else if self.match_tok(TokenType::LeftBrace) {
             self.begin_scope();
             let block = self.block();
@@ -257,6 +261,24 @@ impl<'a> Parser<'a> {
 
         self.consume(TokenType::RightBrace, "Expect '}' after block.");
         AstNode::new(line, AstNodeType::Block(statements))
+    }
+
+    fn if_statement(&mut self) -> AstNode<'a> {
+        let condition = self.expression();
+        let line = self.previous.line;
+        self.consume(TokenType::LeftBrace, "Expect '{' after if condition.");
+        let then_block = self.block();
+        let else_block = if self.match_tok(TokenType::Else) {
+            if self.match_tok(TokenType::If) {
+                self.if_statement()
+            } else {
+                self.consume(TokenType::LeftBrace, "Expect '{' or 'if' after else");
+                self.block()
+            }
+        } else {
+            AstNode::new(self.previous.line, AstNodeType::Block(Vec::new()))
+        };
+        AstNode::new(line, AstNodeType::IfStatement(Box::new(condition), Box::new(then_block), Box::new(else_block)))
     }
 
     fn print_statement(&mut self) -> AstNode<'a> {
@@ -352,7 +374,8 @@ impl<'a> Parser<'a> {
             TokenType::EqualEqual => Operator::Equal,
             TokenType::BangEqual => Operator::NotEqual,
             TokenType::Equal => Operator::Assign,
-
+            TokenType::And => Operator::And,
+            TokenType::Or => Operator::Or,
             _ => panic!("Unreachable binary operator"),
         };
         let line = self.previous.line;
@@ -387,6 +410,8 @@ fn infix_left_precedence(tok_type: &TokenType) -> Precedence {
         TokenType::EqualEqual => Precedence::EqualityLeft,
         TokenType::BangEqual => Precedence::EqualityLeft,
         TokenType::Equal => Precedence::AssignmentLeft,
+        TokenType::And => Precedence::AndLeft,
+        TokenType::Or => Precedence::OrLeft,
         _ => Precedence::Nothing,
     }
 }
@@ -404,6 +429,8 @@ fn infix_right_precedence(tok_type: &TokenType) -> Precedence {
         TokenType::EqualEqual => Precedence::EqualityRight,
         TokenType::BangEqual => Precedence::EqualityRight,
         TokenType::Equal => Precedence::AssignmentRight,
+        TokenType::And => Precedence::AndRight,
+        TokenType::Or => Precedence::OrRight,
         _ => Precedence::Nothing,
     }
 }
