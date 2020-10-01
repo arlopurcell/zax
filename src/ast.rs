@@ -477,7 +477,5 @@ impl<'a> AstNode<'a> {
 
 fn identifier_constant(name: &str, heap: &mut Heap, generator: &mut Generator) -> u8 {
     let heap_index = heap.allocate_string(name.to_string());
-    generator
-        .current_chunk_mut()
-        .add_constant(&heap_index.to_be_bytes())
+    generator.add_constant(&heap_index.to_be_bytes())
 }

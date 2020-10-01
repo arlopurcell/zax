@@ -109,39 +109,65 @@ impl ByteCode {
     }
 }
 
-#[derive(PartialEq, Eq)]
-pub struct Chunk {
-    pub code: Vec<u8>,
+pub struct ChunkBuilder {
+    code: Vec<u8>,
     constants: Vec<u8>,
     // TODO save memory by using a run length encoding
     lines: Vec<u32>,
 }
 
+#[derive(PartialEq, Eq)]
+pub struct Chunk {
+    data: Vec<u8>,
+    constant_idx: usize,
+    line_idx: usize,
+}
+
 impl Chunk {
-    pub fn new() -> Self {
+    pub fn new(builder: ChunkBuilder) -> Self {
+        let constant_idx = builder.code.len();
+        let line_idx = constant_idx + builder.constants.len();
+        let mut data = builder.code;
+        data.extend_from_slice(&builder.constants);
+        for line in builder.lines.into_iter() {
+            data.extend_from_slice(&line.to_be_bytes());
+        }
+
         Self {
-            code: Vec::new(),
-            lines: Vec::new(),
-            constants: Vec::new(),
+            data,
+            constant_idx,
+            line_idx,
         }
     }
 
+    fn code(&self) -> &[u8] {
+        &self.data[0..self.constant_idx]
+    }
+
+    fn constants(&self) -> &[u8] {
+        &self.data[self.constant_idx..self.line_idx]
+    }
+
+    fn lines(&self) -> &[u8] {
+        &self.data[self.line_idx..]
+    }
+
     fn get_u8(&self, offset: usize) -> u8 {
-        *self.code.get(offset).unwrap()
+        *self.code().get(offset).unwrap()
     }
 
     fn get_u16(&self, offset: usize) -> u16 {
-        let bytes: &[u8] = &self.code[offset..offset + 2];
+        let bytes: &[u8] = &self.code()[offset..offset + 2];
         u16::from_be_bytes(bytes.try_into().unwrap())
     }
 
     fn get_usize(&self, offset: usize) -> usize {
-        let bytes: &[u8] = &self.code[offset..offset + 8];
+        let bytes: &[u8] = &self.code()[offset..offset + 8];
         usize::from_be_bytes(bytes.try_into().unwrap())
     }
 
     pub fn get_code(&self, offset: usize) -> ByteCode {
-        let byte = self.code.get(offset).unwrap();
+        let byte = self.code().get(offset).unwrap();
         match byte {
             0x0 => ByteCode::Return,
             0x1 => ByteCode::PrintInt,
@@ -195,13 +221,66 @@ impl Chunk {
         }
     }
 
-    pub fn get_line(&self, offset: usize) -> &u32 {
-        self.lines.get(offset).unwrap()
+    pub fn get_line(&self, offset: usize) -> u32 {
+        let index = self.line_idx + offset * 4;
+        u32::from_be_bytes(self.data[index..index+4].try_into().unwrap())
     }
 
     pub fn get_constant(&self, constant: &u8, length: usize) -> &[u8] {
         let idx = *constant as usize;
-        &self.constants[idx..idx + length]
+        &self.constants()[idx..idx + length]
+    }
+
+    pub fn code_len(&self) -> usize {
+        self.code().len()
+    }
+
+
+    #[cfg(feature = "debug-logging")]
+    pub fn disassemble(&self, name: &str) -> () {
+        println!("== {} ==", name);
+
+        let mut offset = 0;
+        while offset < self.code().len() {
+        //for offset in 0..self.code.len() {
+            self.disassemble_instruction(offset);
+            offset += self.get_code(offset).size() as usize;
+        }
+    }
+
+    #[cfg(feature = "debug-logging")]
+    pub fn disassemble_instruction(&self, offset: usize) -> () {
+        print!("{offset:>width$} ", offset = offset, width = 4);
+        if offset > 0 && self.get_line(offset) == self.get_line(offset - 1) {
+            print!("   | ")
+        } else {
+            print!(
+                "{line:>width$} ",
+                line = self.get_line(offset),
+                width = 4
+            );
+        }
+
+        let code = self.get_code(offset);
+
+        print!("{:?}", self.get_code(offset));
+        let slice = &self.code()[offset..offset+(code.size() as usize)];
+        println!(" ({:x?})", slice);
+    }
+
+}
+
+impl ChunkBuilder {
+    pub fn new() -> Self {
+        Self {
+            code: Vec::new(),
+            lines: Vec::new(),
+            constants: Vec::new(),
+        }
+    }
+
+    pub fn code_len(&self) -> usize {
+        self.code.len()
     }
 
     pub fn append(&mut self, code: ByteCode, line: u32) -> () {
@@ -430,45 +509,10 @@ impl Chunk {
         u8::try_from(next_start).ok().expect("Too many constants")
     }
 
-    pub fn len(&self) -> usize {
-        self.code.len()
-    }
-
     pub fn patch_jump(&mut self, index: usize, offset: u16) -> () {
         let offset_bytes = offset.to_be_bytes();
         self.code[index - 1] = offset_bytes[0];
         self.code[index] = offset_bytes[1];
     }
 
-    #[cfg(feature = "debug-logging")]
-    pub fn disassemble(&self, name: &str) -> () {
-        println!("== {} ==", name);
-
-        let mut offset = 0;
-        while offset < self.code.len() {
-        //for offset in 0..self.code.len() {
-            self.disassemble_instruction(offset);
-            offset += self.get_code(offset).size() as usize;
-        }
-    }
-
-    #[cfg(feature = "debug-logging")]
-    pub fn disassemble_instruction(&self, offset: usize) -> () {
-        print!("{offset:>width$} ", offset = offset, width = 4);
-        if offset > 0 && self.lines.get(offset).unwrap() == self.lines.get(offset - 1).unwrap() {
-            print!("   | ")
-        } else {
-            print!(
-                "{line:>width$} ",
-                line = self.lines.get(offset).unwrap(),
-                width = 4
-            );
-        }
-
-        let code = self.get_code(offset);
-
-        print!("{:?}", self.get_code(offset));
-        let slice = &self.code[offset..offset+(code.size() as usize)];
-        println!(" ({:x?})", slice);
-    }
 }

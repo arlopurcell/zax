@@ -36,20 +36,12 @@ impl CallFrame {
         &self.function.chunk
     }
 
-    fn chunk_mut(&mut self) -> &mut Chunk {
-        &mut self.function.chunk
-    }
-
     fn get_code(&self) -> ByteCode {
         self.function.chunk.get_code(self.ip)
     }
 
-    fn get_last_line(&self) -> &u32 {
+    fn get_last_line(&self) -> u32 {
         self.function.chunk.get_line(self.ip - 1)
-    }
-
-    fn increment_ip(&mut self) -> () {
-        self.ip += 1;
     }
 
     fn jump(&mut self, offset: u16) -> () {
