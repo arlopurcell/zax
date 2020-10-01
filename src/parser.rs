@@ -12,18 +12,11 @@ pub struct Parser<'a> {
     panic_mode: bool,
     locals: Vec<Local<'a>>,
     scope_depth: usize,
-    pub function: FunctionObj,
-    func_type: FunctionType,
 }
 
 struct Local<'a> {
     name: &'a str,
     depth: usize,
-}
-
-enum FunctionType {
-    Function,
-    Script,
 }
 
 impl<'a> Parser<'a> {
@@ -38,8 +31,6 @@ impl<'a> Parser<'a> {
             panic_mode: false,
             locals: vec![Local { name: "", depth: 0 }], // TODO idk why i'm doing this yet
             scope_depth: 0,
-            function: FunctionObj::new(),
-            func_type: FunctionType::Script,
         }
     }
 
@@ -195,6 +186,8 @@ impl<'a> Parser<'a> {
     fn declaration(&mut self) -> AstNode<'a> {
         let result = if self.match_tok(TokenType::Let) {
             self.let_declaration()
+        } else if self.match_tok(TokenType::Fun) {
+            self.fun_declaration()
         } else {
             self.statement()
         };
@@ -206,16 +199,7 @@ impl<'a> Parser<'a> {
 
     fn let_declaration(&mut self) -> AstNode<'a> {
         self.consume(TokenType::Identifier, "Expect variable name");
-        let var_name = self.previous.source;
-        let variable = if self.scope_depth > 0 {
-            self.add_local();
-            AstNode::new(
-                self.previous.line,
-                AstNodeType::LocalVariable(self.locals.len() - 1, var_name),
-            )
-        } else {
-            AstNode::new(self.previous.line, AstNodeType::GlobalVariable(var_name))
-        };
+        let variable = self.variable_declaration();
         let line = self.previous.line;
         self.consume(
             TokenType::Equal,
@@ -228,6 +212,50 @@ impl<'a> Parser<'a> {
             //AstNodeType::LetStatement(var_name, Box::new(variable), Box::new(expression)),
             AstNodeType::DeclareStatement(Box::new(variable), Box::new(expression)),
         )
+    }
+
+    fn variable_declaration(&mut self) -> AstNode<'a> {
+        let var_name = self.previous.source;
+        if self.scope_depth > 0 {
+            self.add_local();
+            AstNode::new(
+                self.previous.line,
+                AstNodeType::LocalVariable(self.locals.len() - 1, var_name),
+            )
+        } else {
+            AstNode::new(self.previous.line, AstNodeType::GlobalVariable(var_name))
+        }
+    }
+
+    fn fun_declaration(&mut self) -> AstNode<'a> {
+        let name = self.variable_declaration();
+        let line = self.previous.line;
+        let func = self.function();
+
+        AstNode::new(line, AstNodeType::DeclareStatement(Box::new(name), Box::new(func)))
+    }
+
+    fn function(&mut self) -> AstNode<'a> {
+        self.begin_scope();
+
+        self.consume(TokenType::LeftParen, "Expect '(' before function parameters.");
+        let line = self.previous.line;
+        // TODO args
+        let args = Vec::new();
+        self.consume(TokenType::RightParen, "Expect ')' after function parameters.");
+
+        self.consume(TokenType::Arrow, "Expect '->' after parameters.");
+        self.consume(TokenType::Identifier, "Expect return type after ->");
+        let return_type = self.previous.source;
+
+        let body = self.block();
+        self.end_scope();
+
+        AstNode::new(line, AstNodeType::FunctionStatement{
+            return_type,
+            args,
+            body: Box::new(body),
+        })
     }
 
     fn add_local(&mut self) -> () {

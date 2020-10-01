@@ -40,7 +40,7 @@ impl CallFrame {
         &mut self.function.chunk
     }
 
-    fn get_code(&self) -> &ByteCode {
+    fn get_code(&self) -> ByteCode {
         self.function.chunk.get_code(self.ip)
     }
 
@@ -146,6 +146,10 @@ impl<'a> VM<'a> {
     pub fn interpret(&mut self, source: &str) -> InterpretResult {
         // TODO rearrange calls so we don't allocate a chunk in new
         let main_func = compile(source, &mut self.heap, &mut self.type_scope)?;
+
+        #[cfg(feature = "debug-logging")]
+        main_func.chunk.disassemble("main");
+
         self.frames.push(CallFrame::new(main_func, 0));
         self.run()
     }
@@ -195,23 +199,22 @@ impl<'a> VM<'a> {
             //let frames = &mut self.frames;
             let last_index = frames.len() - 1;
             let current_frame = &mut frames[last_index];
-            let bc = *current_frame.get_code();
 
             #[cfg(feature = "debug-logging")]
             {
                 print!(" stack: ");
-                for slot in self.stack.0.iter() {
+                for slot in stack.0.iter() {
                     print!("[ {} ]", slot);
                 }
                 println!();
                 self.heap.print();
-                self.current_frame()
+                current_frame
                     .chunk()
-                    .disassemble_instruction(self.ip);
+                    .disassemble_instruction(current_frame.ip);
             }
 
-            //self.current_frame_mut().increment_ip();
-            current_frame.ip += 1;
+            let bc = current_frame.get_code();
+            current_frame.ip += bc.size() as usize;
             match bc {
                 ByteCode::Return => return Ok(()),
                 ByteCode::PrintInt => println!("{}", self.stack.pop_int()),

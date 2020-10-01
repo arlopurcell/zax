@@ -63,6 +63,8 @@ pub enum TokenType {
     Let,
     While,
 
+    Arrow,
+
     Error,
     Eof,
 }
@@ -91,10 +93,16 @@ impl<'a> Lexer<'a> {
                 ';' => self.make_token(TokenType::SemiColon),
                 ',' => self.make_token(TokenType::Comma),
                 '.' => self.make_token(TokenType::Dot),
-                '-' => self.make_token(TokenType::Minus),
                 '+' => self.make_token(TokenType::Plus),
                 '/' => self.make_token(TokenType::Slash),
                 '*' => self.make_token(TokenType::Star),
+                '-' => {
+                    if self.match_char('>') {
+                        self.make_token(TokenType::Arrow)
+                    } else {
+                        self.make_token(TokenType::Minus)
+                    }
+                }
                 '&' => {
                     if self.match_char('&') {
                         self.make_token(TokenType::And)

@@ -32,6 +32,7 @@ pub enum AstNodeType<'a> {
 
     WhileStatement(Box<AstNode<'a>>, Box<AstNode<'a>>),
     DeclareStatement(Box<AstNode<'a>>, Box<AstNode<'a>>),
+    FunctionStatement{return_type: &'a str, args: Vec<AstNode<'a>>, body: Box<AstNode<'a>>},
     PrintStatement(Box<AstNode<'a>>),
     ExpressionStatement(Box<AstNode<'a>>),
     Block(Vec<AstNode<'a>>),
@@ -92,6 +93,14 @@ impl<'a> AstNode<'a> {
                     statement.generate(generator, heap);
                 }
             }
+            AstNodeType::FunctionStatement{return_type: _, args: _, body} => {
+                // TODO pass in function name for debugging
+                let mut child_generator = Generator::new();
+                // TODO args
+                body.generate(&mut child_generator, heap);
+                let func_obj = child_generator.end();
+                //generator.emit_constant_8(, self.line);
+            },
             AstNodeType::PrintStatement(e) => {
                 let code = match e.data_type {
                     Some(DataType::Int) => ByteCode::PrintInt,

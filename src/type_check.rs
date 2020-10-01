@@ -441,6 +441,23 @@ fn generate_constraints<'a, 'b>(
             };
             Ok(constraints)
         }
+        AstNodeType::FunctionStatement{return_type, args, body} => {
+            let return_type = match *return_type {
+                "Int" => TCNodeType::Int,
+                "Float" => TCNodeType::Float,
+                "Str" => TCNodeType::Str,
+                "Bool" => TCNodeType::Bool,
+                _ => panic!("Unrecognized return type: {}", return_type), // TODO better error
+            };
+            let mut constraints = vec![TypeConstraint::new(
+                TCSide::Expr(node), TCSide::basic(return_type)
+            )];
+            for param in args.iter() {
+                constraints.append(&mut generate_constraints(param, scope)?);
+            }
+            constraints.append(&mut generate_constraints(body, scope)?);
+            Ok(constraints)
+        }
         AstNodeType::Error => panic!("Unreachable error node in type check"),
     }
 }

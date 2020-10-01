@@ -16,7 +16,6 @@ pub fn compile(
     let mut parser = Parser::new(lexer);
     parser.advance();
     let ast = parser.program();
-    let func = parser.function; // TODO return from parser.program()?
     if parser.had_error {
         Err(InterpretError::Compile)
     } else {
@@ -28,9 +27,10 @@ pub fn compile(
                 #[cfg(feature = "debug-logging")]
                 eprintln!("{:?}", ast);
 
-                let mut generator = Generator::new(func);
+                let mut generator = Generator::new();
                 ast.generate(&mut generator, heap);
-                Ok(generator.end())
+                let func_obj = generator.end();
+                Ok(func_obj)
             }
             Err(e) => {
                 eprintln!("{:?}", e);

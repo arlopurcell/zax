@@ -5,9 +5,18 @@ pub struct Generator {
     function: FunctionObj,
 }
 
+enum FunctionType {
+    Function,
+    Script,
+}
+
+
 impl Generator {
-    pub fn new(function: FunctionObj) -> Self {
-        Self { function }
+    pub fn new() -> Self {
+        // TODO accept function name as argument for debugging
+        Self { 
+            function: FunctionObj::new(), 
+        }
     }
 
     pub fn current_chunk(&self) -> &Chunk {
@@ -64,7 +73,7 @@ impl Generator {
     }
 
     pub fn emit_loop(&mut self, loop_start: usize, line: u32) -> () {
-        let offset = (self.current_chunk().len() - loop_start) as u16;
+        let offset = (self.current_chunk().len() - loop_start + 2) as u16;
 
         if offset > u16::MAX {
             // TODO make compiler error
