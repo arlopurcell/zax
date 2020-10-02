@@ -35,7 +35,7 @@ pub enum AstNodeType<'a> {
 
     WhileStatement(Box<AstNode<'a>>, Box<AstNode<'a>>),
     DeclareStatement(Box<AstNode<'a>>, Box<AstNode<'a>>),
-    FunctionStatement{return_type: &'a str, args: Vec<AstNode<'a>>, body: Box<AstNode<'a>>},
+    FunctionDef{return_type: &'a str, params: Vec<AstNode<'a>>, body: Box<AstNode<'a>>},
     PrintStatement(Box<AstNode<'a>>),
     ExpressionStatement(Box<AstNode<'a>>),
     Block(Vec<AstNode<'a>>),
@@ -147,7 +147,7 @@ impl<'a> AstNode<'a> {
                     statement.generate(generator, heap);
                 }
             }
-            AstNodeType::FunctionStatement{return_type: _, args: _, body} => {
+            AstNodeType::FunctionDef{return_type: _, params: _, body} => {
                 // TODO pass in function name for debugging
                 let mut child_generator = Generator::new();
                 // TODO args
@@ -556,14 +556,14 @@ impl<'a> AstNode<'a> {
                     args: args?,
                 }
             }
-            AstNodeType::FunctionStatement{return_type, args, body} => {
-                let args: Result<Vec<_>, _> = args
+            AstNodeType::FunctionDef{return_type, params, body} => {
+                let params: Result<Vec<_>, _> = params
                     .iter()
-                    .map(|arg| arg.resolve_types(substitutions, scope))
+                    .map(|param| param.resolve_types(substitutions, scope))
                     .collect();
-                AstNodeType::FunctionStatement{
+                AstNodeType::FunctionDef{
                     return_type,
-                    args: args?,
+                    params: params?,
                     body: Box::new(body.resolve_types(substitutions, scope)?),
                 }
             }

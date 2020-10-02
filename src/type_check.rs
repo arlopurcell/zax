@@ -364,7 +364,7 @@ fn generate_constraints<'a, 'b>(
             };
             Ok(constraints)
         }
-        AstNodeType::FunctionStatement{return_type, args, body} => {
+        AstNodeType::FunctionDef{return_type, params, body} => {
             let mut constraints = vec![
                 TypeConstraint::new(TCSide::Expr(node), TCSide::basic(TCNodeType::Function))
             ];
@@ -381,7 +381,7 @@ fn generate_constraints<'a, 'b>(
                 constraints.push(TypeConstraint::new(TCSide::Expr(node), TCSide::basic(return_type)));
             }
             */
-            for param in args.iter() {
+            for param in params.iter() {
                 constraints.append(&mut generate_constraints(param, scope)?);
             }
             constraints.append(&mut generate_constraints(body, scope)?);

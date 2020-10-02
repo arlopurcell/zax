@@ -243,7 +243,7 @@ impl<'a> Parser<'a> {
         self.consume(TokenType::LeftParen, "Expect '(' before function parameters.");
         let line = self.previous.line;
         // TODO args
-        let args = Vec::new();
+        let params = Vec::new();
         self.consume(TokenType::RightParen, "Expect ')' after function parameters.");
 
         self.consume(TokenType::Arrow, "Expect '->' after parameters.");
@@ -254,9 +254,9 @@ impl<'a> Parser<'a> {
         let body = self.block();
         self.end_scope();
 
-        AstNode::new(line, AstNodeType::FunctionStatement{
+        AstNode::new(line, AstNodeType::FunctionDef{
             return_type,
-            args,
+            params,
             body: Box::new(body),
         })
     }
