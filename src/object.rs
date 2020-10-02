@@ -1,7 +1,6 @@
 use std::fmt;
 
 use crate::chunk::Chunk;
-use crate::common::ByteSerialize;
 
 #[derive(PartialEq, Eq)]
 pub struct Object {
@@ -34,16 +33,6 @@ impl Object {
     }
 }
 
-/*
-impl ByteSerialize for Object {
-    fn to_bytes(self) -> Vec<u8> {
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Self {
-    }
-}
-*/
-
 impl fmt::Display for Object {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.value.fmt(f)
@@ -58,16 +47,6 @@ impl fmt::Display for ObjType {
         }
     }
 }
-
-/*
-impl ByteSerialize for ObjType {
-    fn to_bytes(self) -> Vec<u8> {
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Self {
-    }
-}
-*/
 
 impl FunctionObj {
     // TODO fix this
@@ -87,18 +66,3 @@ impl fmt::Display for FunctionObj {
     }
 }
 
-impl ByteSerialize for FunctionObj {
-    fn to_bytes(self) -> Vec<u8> {
-        let mut data = self.chunk.to_bytes();
-        data.push(self.arity);
-        //let name_bytes: Vec<_> = self.name.bytes().collect();
-        //data.extend_from_slice(&name_bytes);
-        data
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Self {
-        let arity = bytes[bytes.len() - 1];
-        let chunk = Chunk::from_bytes(&bytes[0..bytes.len() - 2]);
-        Self {arity, chunk}
-    }
-}

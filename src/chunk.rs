@@ -1,7 +1,5 @@
 use std::convert::{TryFrom, TryInto};
 
-use crate::common::ByteSerialize;
-
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum ByteCode {
     Return,
@@ -265,9 +263,6 @@ impl Chunk {
         println!(" ({:x?})", slice);
     }
 
-}
-
-impl ByteSerialize for Chunk {
     fn to_bytes(mut self) -> Vec<u8> {
         self.data.extend_from_slice(&self.constant_idx.to_be_bytes());
         self.data.extend_from_slice(&self.line_idx.to_be_bytes());
