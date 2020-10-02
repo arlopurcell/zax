@@ -8,7 +8,7 @@ pub enum ByteCode {
     PrintInt,
     PrintFloat,
     PrintBool,
-    PrintStr,
+    PrintObject,
     Constant1(u8),
     Constant8(u8),
     NegateInt,
@@ -52,6 +52,8 @@ pub enum ByteCode {
     JumpIfFalse(u16),
     Jump(u16),
     Loop(u16),
+    Call(usize),
+    NoOp,
 }
 
 impl ByteCode {
@@ -61,7 +63,7 @@ impl ByteCode {
             | Self::PrintInt
             | Self::PrintFloat
             | Self::PrintBool
-            | Self::PrintStr
+            | Self::PrintObject
             | Self::NegateInt
             | Self::AddInt
             | Self::SubInt
@@ -89,7 +91,8 @@ impl ByteCode {
             | Self::NotEqualHeap
             | Self::Concat
             | Self::Pop8
-            | Self::Pop1 => 1,
+            | Self::Pop1
+            | Self::NoOp => 1,
             Self::Constant1(_)
             | Self::Constant8(_)
             | Self::DefineGlobal1(_)
@@ -104,7 +107,8 @@ impl ByteCode {
             Self::GetLocal1(_)
             | Self::GetLocal8(_)
             | Self::SetLocal1(_)
-            | Self::SetLocal8(_) => 9,
+            | Self::SetLocal8(_)
+            | Self::Call(_) => 9,
         }
     }
 }
@@ -148,10 +152,6 @@ impl Chunk {
         &self.data[self.constant_idx..self.line_idx]
     }
 
-    fn lines(&self) -> &[u8] {
-        &self.data[self.line_idx..]
-    }
-
     fn get_u8(&self, offset: usize) -> u8 {
         *self.code().get(offset).unwrap()
     }
@@ -173,7 +173,7 @@ impl Chunk {
             0x1 => ByteCode::PrintInt,
             0x2 => ByteCode::PrintFloat,
             0x3 => ByteCode::PrintBool,
-            0x4 => ByteCode::PrintStr,
+            0x4 => ByteCode::PrintObject,
             0x5 => ByteCode::Constant1(self.get_u8(offset + 1)),
             0x6 => ByteCode::Constant8(self.get_u8(offset + 1)),
             0x7 => ByteCode::NegateInt,
@@ -217,7 +217,9 @@ impl Chunk {
             0x2d => ByteCode::JumpIfFalse(self.get_u16(offset + 1)),
             0x2e => ByteCode::Jump(self.get_u16(offset + 1)),
             0x2f => ByteCode::Loop(self.get_u16(offset + 1)),
-            _ => panic!("Invalid byte code: {:x}", byte),
+            0x30 => ByteCode::Call(self.get_usize(offset + 1)),
+            0x31 => ByteCode::NoOp,
+            _ => panic!("Invalid byte code: 0x{:x}", byte),
         }
     }
 
@@ -230,11 +232,6 @@ impl Chunk {
         let idx = *constant as usize;
         &self.constants()[idx..idx + length]
     }
-
-    pub fn code_len(&self) -> usize {
-        self.code().len()
-    }
-
 
     #[cfg(feature = "debug-logging")]
     pub fn disassemble(&self, name: &str) -> () {
@@ -270,6 +267,44 @@ impl Chunk {
 
 }
 
+impl ByteSerialize for Chunk {
+    fn to_bytes(mut self) -> Vec<u8> {
+        self.data.extend_from_slice(&self.constant_idx.to_be_bytes());
+        self.data.extend_from_slice(&self.line_idx.to_be_bytes());
+        self.data
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Self {
+        let mut data = bytes.to_vec();
+        let constant_idx_bytes = [
+            data.pop().unwrap(),
+            data.pop().unwrap(),
+            data.pop().unwrap(),
+            data.pop().unwrap(),
+            data.pop().unwrap(),
+            data.pop().unwrap(),
+            data.pop().unwrap(),
+            data.pop().unwrap(),
+        ];
+        let constant_idx = usize::from_le_bytes(constant_idx_bytes);
+
+        let line_idx_bytes = [
+            data.pop().unwrap(),
+            data.pop().unwrap(),
+            data.pop().unwrap(),
+            data.pop().unwrap(),
+            data.pop().unwrap(),
+            data.pop().unwrap(),
+            data.pop().unwrap(),
+            data.pop().unwrap(),
+        ];
+        let line_idx = usize::from_le_bytes(line_idx_bytes);
+        Self {
+            data, constant_idx, line_idx
+        }
+    }
+}
+
 impl ChunkBuilder {
     pub fn new() -> Self {
         Self {
@@ -301,7 +336,7 @@ impl ChunkBuilder {
                 self.code.push(0x3);
                 self.lines.push(line);
             },
-            ByteCode::PrintStr => {
+            ByteCode::PrintObject => {
                 self.code.push(0x4);
                 self.lines.push(line);
             },
@@ -499,6 +534,15 @@ impl ChunkBuilder {
                 self.code.push(0x2f);
                 self.code.extend_from_slice(&arg.to_be_bytes());
                 self.lines.extend_from_slice(&[line; 3]);
+            },
+            ByteCode::Call(arg) => {
+                self.code.push(0x30);
+                self.code.extend_from_slice(&arg.to_be_bytes());
+                self.lines.extend_from_slice(&[line; 9]);
+            },
+            ByteCode::NoOp => {
+                self.code.push(0x31);
+                self.lines.push(line);
             },
         }
     }

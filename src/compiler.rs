@@ -25,7 +25,7 @@ pub fn compile(
                 let ast = (&ast).resolve_types(&substitutions, &mut scope)?;
 
                 #[cfg(feature = "debug-logging")]
-                eprintln!("{:?}", ast);
+                eprintln!("{:#?}", ast);
 
                 let mut generator = Generator::new();
                 ast.generate(&mut generator, heap);

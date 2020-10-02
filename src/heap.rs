@@ -1,7 +1,7 @@
 use fnv::FnvHashMap;
 use std::convert::TryInto;
 
-use crate::object::{FunctionObj, ObjType, Object};
+use crate::object::{ObjType, Object};
 
 pub struct Heap {
     objects: FnvHashMap<usize, Object>,
@@ -9,7 +9,7 @@ pub struct Heap {
     interned_strings: FnvHashMap<String, usize>,
 }
 
-impl Heap {
+impl <'a> Heap {
     pub fn new() -> Self {
         Self {
             objects: FnvHashMap::default(),
@@ -45,7 +45,7 @@ impl Heap {
         self.objects.get(&idx).unwrap()
     }
 
-    pub fn get_with_bytes(&self, idx: &[u8]) -> &Object {
+    pub fn get_with_bytes(&'a self, idx: &[u8]) -> &'a Object {
         let idx = usize::from_be_bytes(idx.try_into().unwrap());
         self.get(idx)
     }

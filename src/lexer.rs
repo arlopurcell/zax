@@ -298,7 +298,7 @@ impl<'a> Lexer<'a> {
                     match char::from(self.source[self.start + 1]) {
                         'a' => self.check_keyword(2, "lse", TokenType::False),
                         'o' => self.check_keyword(2, "r", TokenType::For),
-                        'u' => self.check_keyword(2, "un", TokenType::Fun),
+                        'u' => self.check_keyword(2, "n", TokenType::Fun),
                         _ => TokenType::Identifier,
                     }
                 } else {

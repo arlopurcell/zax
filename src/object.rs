@@ -1,6 +1,7 @@
 use std::fmt;
 
 use crate::chunk::Chunk;
+use crate::common::ByteSerialize;
 
 #[derive(PartialEq, Eq)]
 pub struct Object {
@@ -17,7 +18,7 @@ pub enum ObjType {
 pub struct FunctionObj {
     pub arity: u8,
     pub chunk: Chunk,
-    pub name: String,
+    //pub name: String,
 }
 
 impl Object {
@@ -33,9 +34,19 @@ impl Object {
     }
 }
 
+/*
+impl ByteSerialize for Object {
+    fn to_bytes(self) -> Vec<u8> {
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Self {
+    }
+}
+*/
+
 impl fmt::Display for Object {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Object({})", self.value)
+        self.value.fmt(f)
     }
 }
 
@@ -48,19 +59,46 @@ impl fmt::Display for ObjType {
     }
 }
 
+/*
+impl ByteSerialize for ObjType {
+    fn to_bytes(self) -> Vec<u8> {
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Self {
+    }
+}
+*/
+
 impl FunctionObj {
     // TODO fix this
     pub fn new(chunk: Chunk) -> Self {
         Self {
             arity: 0,
             chunk,
-            name: "".to_string(),
+            //name: "".to_string(),
         }
     }
 }
 
 impl fmt::Display for FunctionObj {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}({})", self.name, self.arity)
+        //write!(f, "{}({})", self.name, self.arity)
+        write!(f, "function({})", self.arity)
+    }
+}
+
+impl ByteSerialize for FunctionObj {
+    fn to_bytes(self) -> Vec<u8> {
+        let mut data = self.chunk.to_bytes();
+        data.push(self.arity);
+        //let name_bytes: Vec<_> = self.name.bytes().collect();
+        //data.extend_from_slice(&name_bytes);
+        data
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Self {
+        let arity = bytes[bytes.len() - 1];
+        let chunk = Chunk::from_bytes(&bytes[0..bytes.len() - 2]);
+        Self {arity, chunk}
     }
 }

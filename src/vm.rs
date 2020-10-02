@@ -1,10 +1,11 @@
 use std::collections::HashMap;
+use std::convert::TryInto;
 
 use crate::chunk::{ByteCode, Chunk};
 use crate::common::{InterpretError, InterpretResult};
 use crate::compiler::compile;
 use crate::heap::Heap;
-use crate::object::{FunctionObj, Object};
+use crate::object::{FunctionObj, Object, ObjType};
 use crate::type_check::Scope;
 
 pub struct VM<'a> {
@@ -18,30 +19,39 @@ pub struct VM<'a> {
 struct Stack(Vec<u8>);
 
 struct CallFrame {
-    function: FunctionObj,
+    function_heap_index: usize,
     ip: usize,
     stack_index: usize,
 }
 
 impl CallFrame {
-    fn new(function: FunctionObj, stack_index: usize) -> Self {
+    fn new(function_heap_index: usize, stack_index: usize) -> Self {
         Self {
-            function,
+            function_heap_index,
             stack_index,
             ip: 0,
         }
     }
 
-    fn chunk(&self) -> &Chunk {
-        &self.function.chunk
+    fn func_obj<'a>(&self, heap: &'a Heap) -> &'a FunctionObj {
+        let object = heap.get(self.function_heap_index);
+        if let ObjType::Function(func_obj) = &object.value {
+            &func_obj
+        } else {
+            panic!("FunctionObj of CallFrame wasn't a function")
+        }
     }
 
-    fn get_code(&self) -> ByteCode {
-        self.function.chunk.get_code(self.ip)
+    fn chunk<'a>(&self, heap: &'a Heap) -> &'a Chunk {
+        &self.func_obj(heap).chunk
     }
 
-    fn get_last_line(&self) -> u32 {
-        self.function.chunk.get_line(self.ip - 1)
+    fn get_code<'a>(&self, heap: &'a Heap) -> ByteCode {
+        self.func_obj(heap).chunk.get_code(self.ip)
+    }
+
+    fn get_last_line<'a>(&self, heap: &'a Heap) -> u32 {
+        self.func_obj(heap).chunk.get_line(self.ip - 1)
     }
 
     fn jump(&mut self, offset: u16) -> () {
@@ -54,6 +64,15 @@ impl CallFrame {
 }
 
 impl Stack {
+    fn skip_peek_bytes_8(&self, skip: usize) -> &[u8] {
+        let start_index = self.0.len() - skip - 8;
+        &self.0[start_index..start_index+8]
+    }
+
+    fn pop_bulk(&mut self, bytes: usize) -> () {
+        self.0.truncate(self.0.len() - bytes);
+    }
+
     fn pop_bytes_8(&mut self) -> [u8; 8] {
         let (a, b, c, d, e, f, g, h) = (
             self.0.pop().unwrap(),
@@ -136,13 +155,15 @@ impl<'a> VM<'a> {
     }
 
     pub fn interpret(&mut self, source: &str) -> InterpretResult {
-        // TODO rearrange calls so we don't allocate a chunk in new
         let main_func = compile(source, &mut self.heap, &mut self.type_scope)?;
 
         #[cfg(feature = "debug-logging")]
         main_func.chunk.disassemble("main");
 
-        self.frames.push(CallFrame::new(main_func, 0));
+        let heap_index = self.heap.allocate(Object::new(ObjType::Function(Box::new(main_func))));
+        let frame = CallFrame::new(heap_index, 0);
+        self.frames.push(frame);
+
         self.run()
     }
 
@@ -150,15 +171,18 @@ impl<'a> VM<'a> {
         &self.frames[self.frames.len() - 1]
     }
 
-    fn current_frame_mut(&mut self) -> &mut CallFrame {
+    fn current_frame_mut(&'a mut self) -> &'a mut CallFrame {
         let index = self.frames.len() - 1;
         &mut self.frames[index]
     }
 
     fn runtime_error(&self, message: &str) -> () {
         eprintln!("{}", message);
-        let line = self.current_frame().get_last_line();
-        eprintln!("[line {:>4}] in script", line);
+
+        for frame in self.frames.iter().rev() {
+            eprintln!("[line {:>4}] in script", frame.get_last_line(&self.heap));
+            // TODO add function name to trace
+        }
     }
 
     fn pop_heap(&mut self) -> &Object {
@@ -188,7 +212,6 @@ impl<'a> VM<'a> {
                 type_scope: _,
                 frames,
             } = self;
-            //let frames = &mut self.frames;
             let last_index = frames.len() - 1;
             let current_frame = &mut frames[last_index];
 
@@ -201,24 +224,33 @@ impl<'a> VM<'a> {
                 println!();
                 self.heap.print();
                 current_frame
-                    .chunk()
+                    .chunk(&self.heap)
                     .disassemble_instruction(current_frame.ip);
             }
 
-            let bc = current_frame.get_code();
+            let bc = current_frame.get_code(&self.heap);
             current_frame.ip += bc.size() as usize;
             match bc {
-                ByteCode::Return => return Ok(()),
+                ByteCode::Return => {
+                    // TODO pop result
+                    let old_frame = self.frames.pop().unwrap();
+                    if self.frames.len() == 0 {
+                        return Ok(());
+                    }
+
+                    self.stack.pop_bulk(old_frame.stack_index);
+                    // TODO push result
+                },
                 ByteCode::PrintInt => println!("{}", self.stack.pop_int()),
                 ByteCode::PrintFloat => println!("{}", self.stack.pop_float()),
                 ByteCode::PrintBool => println!("{}", self.stack.pop_bool()),
-                ByteCode::PrintStr => println!("{}", self.pop_heap().as_string()),
+                ByteCode::PrintObject => println!("{}", self.pop_heap()),
                 ByteCode::Constant1(constant) => {
-                    let constant = current_frame.chunk().get_constant(&constant, 1);
+                    let constant = current_frame.chunk(&self.heap).get_constant(&constant, 1);
                     stack.push(constant)
                 }
                 ByteCode::Constant8(constant) => {
-                    let constant = current_frame.chunk().get_constant(&constant, 8);
+                    let constant = current_frame.chunk(&self.heap).get_constant(&constant, 8);
                     stack.push(constant)
                 }
                 ByteCode::NegateInt => {
@@ -356,19 +388,19 @@ impl<'a> VM<'a> {
                     self.stack.pop_byte();
                 }
                 ByteCode::DefineGlobal1(constant) => {
-                    let constant = self.current_frame().chunk().get_constant(&constant, 8);
+                    let constant = self.current_frame().chunk(&self.heap).get_constant(&constant, 8);
                     let name = self.heap.get_with_bytes(constant).as_string().to_string();
                     let value = vec![self.stack.pop_byte()];
                     self.globals.insert(name, value);
                 }
                 ByteCode::DefineGlobal8(constant) => {
-                    let constant = self.current_frame().chunk().get_constant(&constant, 8);
+                    let constant = self.current_frame().chunk(&self.heap).get_constant(&constant, 8);
                     let name = self.heap.get_with_bytes(constant).as_string().to_string();
                     let value = self.stack.pop_bytes_8().to_vec();
                     self.globals.insert(name, value);
                 }
                 ByteCode::GetGlobal1(constant) => {
-                    let constant = self.current_frame().chunk().get_constant(&constant, 8);
+                    let constant = self.current_frame().chunk(&self.heap).get_constant(&constant, 8);
                     let name = self.heap.get_with_bytes(constant).as_string().to_string();
                     if let Some(value) = self.globals.get(&name) {
                         self.stack.push(value)
@@ -379,17 +411,18 @@ impl<'a> VM<'a> {
                     }
                 }
                 ByteCode::GetGlobal8(constant) => {
-                    let constant = self.current_frame().chunk().get_constant(&constant, 8);
+                    let constant = self.current_frame().chunk(&self.heap).get_constant(&constant, 8);
                     let name = self.heap.get_with_bytes(constant).as_string();
                     if let Some(value) = self.globals.get(name) {
                         self.stack.push(value)
                     } else {
+                        // TODO static analysis for variable usage
                         self.runtime_error(&format!("Undefined variable {}", name));
                         return Err(InterpretError::Runtime);
                     }
                 }
                 ByteCode::SetGlobal1(constant) => {
-                    let constant = self.current_frame().chunk().get_constant(&constant, 8);
+                    let constant = self.current_frame().chunk(&self.heap).get_constant(&constant, 8);
                     let name = self.heap.get_with_bytes(constant).as_string();
                     let value = vec![self.stack.peek_byte()];
                     let already_defined = if let None = self.globals.insert(name.to_string(), value)
@@ -399,6 +432,7 @@ impl<'a> VM<'a> {
                         false
                     };
                     if already_defined {
+                        // TODO static analysis for variable usage
                         // It was already defined
                         self.globals.remove(name);
                         self.runtime_error(&format!("Undefined variable {}", name));
@@ -406,7 +440,7 @@ impl<'a> VM<'a> {
                     }
                 }
                 ByteCode::SetGlobal8(constant) => {
-                    let constant = self.current_frame().chunk().get_constant(&constant, 8);
+                    let constant = self.current_frame().chunk(&self.heap).get_constant(&constant, 8);
                     let name = self.heap.get_with_bytes(constant).as_string();
                     let value = self.stack.peek_bytes_8().to_vec();
                     let already_defined = if let None = self.globals.insert(name.to_string(), value)
@@ -416,6 +450,7 @@ impl<'a> VM<'a> {
                         false
                     };
                     if already_defined {
+                        // TODO static analysis for variable usage
                         // It was already defined
                         self.globals.remove(name);
                         self.runtime_error(&format!("Undefined variable {}", name));
@@ -448,15 +483,22 @@ impl<'a> VM<'a> {
                 }
                 ByteCode::JumpIfFalse(offset) => {
                     if !self.stack.peek_bool() {
-                        self.current_frame_mut().jump(offset);
+                        current_frame.jump(offset);
                     }
                 }
                 ByteCode::Jump(offset) => {
-                    self.current_frame_mut().jump(offset);
+                    current_frame.jump(offset);
                 }
                 ByteCode::Loop(offset) => {
-                    self.current_frame_mut().back_jump(offset);
+                    current_frame.back_jump(offset);
                 }
+                ByteCode::Call(args_bytes) => {
+                    let heap_index = stack.skip_peek_bytes_8(args_bytes);
+                    let heap_index = usize::from_be_bytes(heap_index.try_into().unwrap());
+                    let frame = CallFrame::new(heap_index, args_bytes);
+                    self.frames.push(frame);
+                }
+                ByteCode::NoOp => (),
             }
         }
     }

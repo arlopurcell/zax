@@ -76,6 +76,8 @@ pub enum TCNodeType {
     Float,
     Bool,
     Str,
+    Function,
+    Nil,
     // TOOD Array,
 }
 
@@ -85,6 +87,8 @@ pub enum DataType {
     Float,
     Bool,
     Str,
+    Function,
+    Nil,
     // TODO Array(Box<NodeType>),
 }
 
@@ -369,25 +373,6 @@ fn generate_constraints<'a, 'b>(
             constraints.append(&mut generate_constraints(b, scope)?);
             Ok(constraints)
         }
-        /* TODO
-        SyntaxTreeNode::FunctionCall(name, arguments) => {
-            let name: &str = name.as_ref();
-            let (return_side, arg_sides) = function_map
-                .get(name)
-                .ok_or(TypeError::UnknownFunction(name.to_string()))?;
-            if arguments.len() != arg_sides.len() {
-                Err(TypeError::ArgNumber(arg_sides.len(), arguments.len()))
-            } else {
-                let mut constraints =
-                    vec![TypeConstraint::new(TCSide::Expr(node), return_side.clone())];
-                for (arg, arg_side) in arguments.iter().zip(arg_sides.iter()) {
-                    constraints.push(TypeConstraint::new(TCSide::Expr(arg), arg_side.clone()));
-                    constraints.append(&mut generate_constraints(arg, function_map)?);
-                }
-                Ok(constraints)
-            }
-        }
-        */
         AstNodeType::Program(statements) => {
             let mut constraints = Vec::new();
             for statement in statements.iter() {
@@ -442,20 +427,37 @@ fn generate_constraints<'a, 'b>(
             Ok(constraints)
         }
         AstNodeType::FunctionStatement{return_type, args, body} => {
+            let mut constraints = vec![
+                TypeConstraint::new(TCSide::Expr(node), TCSide::basic(TCNodeType::Function))
+            ];
+            /*
             let return_type = match *return_type {
-                "Int" => TCNodeType::Int,
-                "Float" => TCNodeType::Float,
-                "Str" => TCNodeType::Str,
-                "Bool" => TCNodeType::Bool,
+                "Int" => Some(TCNodeType::Int),
+                "Float" => Some(TCNodeType::Float),
+                "Str" => Some(TCNodeType::Str),
+                "Bool" => Some(TCNodeType::Bool),
+                "Void" => None,
                 _ => panic!("Unrecognized return type: {}", return_type), // TODO better error
             };
-            let mut constraints = vec![TypeConstraint::new(
-                TCSide::Expr(node), TCSide::basic(return_type)
-            )];
+            if let Some(return_type) = return_type {
+                constraints.push(TypeConstraint::new(TCSide::Expr(node), TCSide::basic(return_type)));
+            }
+            */
             for param in args.iter() {
                 constraints.append(&mut generate_constraints(param, scope)?);
             }
             constraints.append(&mut generate_constraints(body, scope)?);
+            Ok(constraints)
+        }
+        AstNodeType::Call{target, args} => {
+            let mut constraints = Vec::new();
+            // TODO get signature from scope and type check return type and arg types
+            constraints.push(TypeConstraint::new(TCSide::Expr(node), TCSide::basic(TCNodeType::Nil)));
+            constraints.append(&mut generate_constraints(target, scope)?);
+            for arg in args.iter() {
+                constraints.append(&mut generate_constraints(arg, scope)?);
+            }
+
             Ok(constraints)
         }
         AstNodeType::Error => panic!("Unreachable error node in type check"),

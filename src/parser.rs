@@ -130,6 +130,7 @@ impl<'a> Parser<'a> {
                 | TokenType::And
                 | TokenType::Or
                 | TokenType::Equal => self.binary(node),
+                TokenType::LeftParen => self.call(node),
                 _ => {
                     self.error("Unreachable no infix parse function");
                     AstNode::new(self.previous.line, AstNodeType::Error)
@@ -228,6 +229,7 @@ impl<'a> Parser<'a> {
     }
 
     fn fun_declaration(&mut self) -> AstNode<'a> {
+        self.consume(TokenType::Identifier, "Expect variable name");
         let name = self.variable_declaration();
         let line = self.previous.line;
         let func = self.function();
@@ -248,6 +250,7 @@ impl<'a> Parser<'a> {
         self.consume(TokenType::Identifier, "Expect return type after ->");
         let return_type = self.previous.source;
 
+        self.consume(TokenType::LeftBrace, "Expect '{' after return type");
         let body = self.block();
         self.end_scope();
 
@@ -444,6 +447,33 @@ impl<'a> Parser<'a> {
             AstNodeType::Binary(operator, Box::new(lhs), Box::new(rhs)),
         )
     }
+
+    fn call(&mut self, target: AstNode<'a>) -> AstNode<'a> {
+        let line = self.previous.line;
+        let args = self.argument_list();
+        AstNode::new(line, AstNodeType::Call{target: Box::new(target), args})
+    }
+
+    fn argument_list(&mut self) -> Vec<AstNode<'a>> {
+        let mut args = Vec::new();
+        // This loop looks weird, but it should parse arg lists with an optional trailing comma
+        loop {
+            if self.match_tok(TokenType::RightParen) {
+                break;
+            }
+            args.push(self.expression());
+            if !self.match_tok(TokenType::Comma) {
+                self.consume(TokenType::RightParen, "Expect ')' after arguments");
+                break;
+            }
+        }
+
+        if args.len() >= 255 {
+            self.error("Cannot have more than 255 arguments");
+        }
+
+        args
+    }
 }
 
 fn prefix_precedence(tok_type: &TokenType) -> Precedence {
@@ -470,6 +500,7 @@ fn infix_left_precedence(tok_type: &TokenType) -> Precedence {
         TokenType::Equal => Precedence::AssignmentLeft,
         TokenType::And => Precedence::AndLeft,
         TokenType::Or => Precedence::OrLeft,
+        TokenType::LeftParen => Precedence::CallLeft,
         _ => Precedence::Nothing,
     }
 }
@@ -489,6 +520,7 @@ fn infix_right_precedence(tok_type: &TokenType) -> Precedence {
         TokenType::Equal => Precedence::AssignmentRight,
         TokenType::And => Precedence::AndRight,
         TokenType::Or => Precedence::OrRight,
+        TokenType::LeftParen => Precedence::CallRight,
         _ => Precedence::Nothing,
     }
 }

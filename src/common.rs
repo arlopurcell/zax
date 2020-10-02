@@ -9,6 +9,6 @@ pub enum InterpretError {
 pub type InterpretResult = Result<(), InterpretError>;
 
 pub trait ByteSerialize {
-    fn to_bytes(&self) -> &[u8];
+    fn to_bytes(self) -> Vec<u8>;
     fn from_bytes(bytes: &[u8]) -> Self;
 }

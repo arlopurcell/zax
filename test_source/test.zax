@@ -9,3 +9,9 @@ if i > 1 {
     print "less than one";
 }
 
+fun areWeHavingItYet() -> Void {
+    print "yes we are!";
+}
+
+areWeHavingItYet();
+

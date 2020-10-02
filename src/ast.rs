@@ -3,6 +3,7 @@ use crate::code_gen::Generator;
 use crate::common::InterpretError;
 use crate::heap::Heap;
 use crate::type_check::{find_type, DataType, Scope, TCNodeType, TypeConstraint};
+use crate::object::{Object, ObjType};
 
 #[derive(Debug, Clone)]
 pub struct AstNode<'a> {
@@ -29,6 +30,8 @@ pub enum AstNodeType<'a> {
 
     GlobalVariable(&'a str),
     LocalVariable(usize, &'a str),
+
+    Call{target: Box<AstNode<'a>>, args: Vec<AstNode<'a>>},
 
     WhileStatement(Box<AstNode<'a>>, Box<AstNode<'a>>),
     DeclareStatement(Box<AstNode<'a>>, Box<AstNode<'a>>),
@@ -76,16 +79,67 @@ impl<'a> AstNode<'a> {
         }
     }
 
+    /*
+    pub fn debug_print(&self) -> () {
+        self.debug_print_indent(0);
+    }
+
+    fn debug_print_indent(&self, indent: usize) -> () {
+        let increment = 2;
+        eprint!("{:>width$}", "", width=indent);
+        match self.node_type {
+            AstNodeType::Error => eprintln!("Error"),
+            AstNodeType::IntLiteral(val) => eprintln!("IntLiteral({})", val),
+            AstNodeType::FloatLiteral(val) => eprintln!("FloatLiteral({})", val),
+            AstNodeType::BoolLiteral(val) => eprintln!("BoolLiteral({})", val),
+            AstNodeType::StrLiteral(val) => eprintln!("StrLiteral({})", val),
+
+            AstNodeType::Unary(operator, operand) => {
+                eprintln!("Unary {:?} (", operator);
+                operand.debug_print_indent(indent + increment);
+                eprintln!("{:>width$})", "", width=indent);
+            },
+            AstNodeType::Binary(op, a, b) => {
+                eprintln!("Binary {:?} (", op);
+                a.debug_print_indent(indent + increment);
+                b.debug_print_indent(indent + increment);
+                eprintln!("{:>width$})", "", width=indent);
+            },
+            AstNodeType::GlobalVariable(val) => eprintln!("GlobalVariable({})", val),
+            AstNodeType::LocalVariable(_, val) => eprintln!("LocalVariable({})", val),
+
+            AstNodeType::Call{target, args} => {
+                eprintln!("Call (");
+                eprint!("{:>width$}target:", "", width=indent+increment);
+                target.debug_print_indent(indent + increment);
+                eprint!("{:>width$}args:", "", width=indent+increment);
+                for arg in args.iter() {
+                    arg.debug_print_indent(indent + increment);
+                }
+                eprintln!(")");
+            }
+
+            AstNodeType::WhileStatement(Box<AstNode<'a>>, Box<AstNode<'a>>),
+            AstNodeType::DeclareStatement(Box<AstNode<'a>>, Box<AstNode<'a>>),
+            AstNodeType::FunctionStatement{return_type: &'a str, args: Vec<AstNode<'a>>, body: Box<AstNode<'a>>},
+            AstNodeType::PrintStatement(Box<AstNode<'a>>),
+            AstNodeType::ExpressionStatement(Box<AstNode<'a>>),
+            AstNodeType::Block(Vec<AstNode<'a>>),
+            AstNodeType::IfStatement(Box<AstNode<'a>>, Box<AstNode<'a>>, Box<AstNode<'a>>),
+            AstNodeType::Program(Vec<AstNode<'a>>),
+        }
+    }
+    */
+
     // TODO static analysis to check lvalues
     pub fn generate(self, generator: &mut Generator, heap: &mut Heap) -> () {
         self.generate_with_lvalue(generator, heap, false)
     }
 
     fn generate_with_lvalue(self, generator: &mut Generator, heap: &mut Heap, lvalue: bool) -> () {
-        let block_bytes = if let AstNodeType::Block(_) = &self.node_type {
-            self.local_var_bytes(false)
-        } else {
-            0
+        let block_bytes = match &self.node_type {
+            AstNodeType::Block(_) | AstNodeType::Call{target:_, args:_} => self.local_var_bytes(false),
+            _ => 0,
         };
         match self.node_type {
             AstNodeType::Program(statements) => {
@@ -98,16 +152,28 @@ impl<'a> AstNode<'a> {
                 let mut child_generator = Generator::new();
                 // TODO args
                 body.generate(&mut child_generator, heap);
+                // TODO function name
                 let func_obj = child_generator.end();
                 //generator.emit_constant_8(, self.line);
+                let heap_index = heap.allocate(Object::new(ObjType::Function(Box::new(func_obj))));
+                generator.emit_constant_8(&heap_index.to_be_bytes(), self.line)
+            },
+            AstNodeType::Call{target, args} => {
+                target.generate(generator, heap);
+                for arg in args {
+                    arg.generate(generator, heap);
+                }
+                generator.emit_byte(ByteCode::Call(block_bytes), self.line);
             },
             AstNodeType::PrintStatement(e) => {
                 let code = match e.data_type {
                     Some(DataType::Int) => ByteCode::PrintInt,
                     Some(DataType::Float) => ByteCode::PrintFloat,
                     Some(DataType::Bool) => ByteCode::PrintBool,
-                    Some(DataType::Str) => ByteCode::PrintStr,
-                    _ => panic!("Invalid arg type for print statement: {:?}", e.data_type),
+                    Some(DataType::Str) => ByteCode::PrintObject,
+                    Some(DataType::Function) => ByteCode::PrintObject,
+                    Some(DataType::Nil) => panic!("Can't print nil"),
+                    None => panic!("None arg type for print statement: {:?}", e.data_type),
                 };
                 e.generate(generator, heap);
                 generator.emit_byte(code, self.line)
@@ -118,6 +184,7 @@ impl<'a> AstNode<'a> {
                         ByteCode::Pop8
                     }
                     Some(DataType::Bool) => ByteCode::Pop1,
+                    Some(DataType::Nil) => ByteCode::NoOp,
                     _ => panic!("Invalid type for expression statement: {:?}", e.data_type),
                 };
                 e.generate(generator, heap);
@@ -127,11 +194,11 @@ impl<'a> AstNode<'a> {
                 AstNodeType::GlobalVariable(name) => {
                     let constant = identifier_constant(name, heap, generator);
                     let code = match rhs.data_type {
-                        Some(DataType::Int) | Some(DataType::Float) | Some(DataType::Str) => {
+                        Some(DataType::Int) | Some(DataType::Float) | Some(DataType::Str) | Some(DataType::Function)=> {
                             ByteCode::DefineGlobal8(constant)
                         }
                         Some(DataType::Bool) => ByteCode::DefineGlobal1(constant),
-                        _ => panic!("Unexpected data type for let statement"),
+                        Some(DataType::Nil) | None => panic!("No data type for global variable")
                     };
                     rhs.generate(generator, heap);
                     generator.emit_byte(code, self.line)
@@ -191,11 +258,11 @@ impl<'a> AstNode<'a> {
                 if !lvalue {
                     let constant = identifier_constant(name, heap, generator);
                     let code = match &self.data_type {
-                        Some(DataType::Int) | Some(DataType::Float) | Some(DataType::Str) => {
+                        Some(DataType::Int) | Some(DataType::Float) | Some(DataType::Str) | Some(DataType::Function) => {
                             ByteCode::GetGlobal8(constant)
                         }
                         Some(DataType::Bool) => ByteCode::GetGlobal1(constant),
-                        _ => panic!("Unexpected data type for variable"),
+                        Some(DataType::Nil) | None => panic!("None data type for variable"),
                     };
                     generator.emit_byte(code, self.line)
                 }
@@ -335,7 +402,10 @@ impl<'a> AstNode<'a> {
             AstNodeType::DeclareStatement(lhs, _) => lhs.local_var_bytes(true),
             AstNodeType::Program(statements) | AstNodeType::Block(statements) => {
                 statements.iter().map(|s| s.local_var_bytes(false)).sum()
-            }
+            },
+            AstNodeType::Call{target: _, args} => {
+                args.iter().map(|s| s.local_var_bytes(false)).sum()
+            },
             AstNodeType::LocalVariable(_, _) => {
                 if lvalue {
                     match self.data_type {
@@ -398,6 +468,8 @@ impl<'a> AstNode<'a> {
             TCNodeType::Float => DataType::Float,
             TCNodeType::Bool => DataType::Bool,
             TCNodeType::Str => DataType::Str,
+            TCNodeType::Function => DataType::Function,
+            TCNodeType::Nil => DataType::Nil,
             /* TODO
                TCNodeType::Array => {
                let child = children.get(0).unwrap();
@@ -407,6 +479,8 @@ impl<'a> AstNode<'a> {
             */
         });
         let mut result = self.clone();
+        result.data_type = data_type;
+        /*
         result.data_type = match self.node_type {
             AstNodeType::Program(_)
             | AstNodeType::PrintStatement(_)
@@ -414,6 +488,8 @@ impl<'a> AstNode<'a> {
             | AstNodeType::Block(_)
             | AstNodeType::IfStatement(_, _, _)
             | AstNodeType::WhileStatement(_, _)
+            | AstNodeType::FunctionStatement{return_type:_, args:_, body:_}
+            | AstNodeType::Call{target: _, args: _} // TODO remove
             | AstNodeType::DeclareStatement(_, _) => data_type,
             _ => {
                 if data_type.is_some() {
@@ -424,6 +500,7 @@ impl<'a> AstNode<'a> {
                 }
             }
         };
+        */
         result.node_type = match &self.node_type {
             AstNodeType::Unary(operator, operand) => {
                 let operand = operand.resolve_types(substitutions, scope)?;
@@ -469,7 +546,34 @@ impl<'a> AstNode<'a> {
                 Box::new(condition.resolve_types(substitutions, scope)?),
                 Box::new(loop_block.resolve_types(substitutions, scope)?),
             ),
-            _ => self.node_type.clone(),
+            AstNodeType::Call{target, args} => {
+                let args: Result<Vec<_>, _> = args
+                    .iter()
+                    .map(|arg| arg.resolve_types(substitutions, scope))
+                    .collect();
+                AstNodeType::Call{
+                    target: Box::new(target.resolve_types(substitutions, scope)?),
+                    args: args?,
+                }
+            }
+            AstNodeType::FunctionStatement{return_type, args, body} => {
+                let args: Result<Vec<_>, _> = args
+                    .iter()
+                    .map(|arg| arg.resolve_types(substitutions, scope))
+                    .collect();
+                AstNodeType::FunctionStatement{
+                    return_type,
+                    args: args?,
+                    body: Box::new(body.resolve_types(substitutions, scope)?),
+                }
+            }
+            AstNodeType::IntLiteral(_)
+            | AstNodeType::FloatLiteral(_)
+            | AstNodeType::StrLiteral(_)
+            | AstNodeType::BoolLiteral(_)
+            | AstNodeType::GlobalVariable(_)
+            | AstNodeType::LocalVariable(_, _)
+            | AstNodeType::Error => self.node_type.clone(),
         };
         Ok(result)
     }
