@@ -136,10 +136,9 @@ impl Stack {
     }
 
     fn write_at(&mut self, index: usize, size: usize, value: &[u8]) -> () {
-        self.0 = self
+        self
             .0
-            .splice(index..index + size, value.into_iter().cloned())
-            .collect();
+            .splice(index..index + size, value.into_iter().cloned());
     }
 }
 
@@ -169,11 +168,6 @@ impl<'a> VM<'a> {
 
     fn current_frame(&self) -> &CallFrame {
         &self.frames[self.frames.len() - 1]
-    }
-
-    fn current_frame_mut(&'a mut self) -> &'a mut CallFrame {
-        let index = self.frames.len() - 1;
-        &mut self.frames[index]
     }
 
     fn runtime_error(&self, message: &str) -> () {

@@ -15,14 +15,14 @@ pub fn compile(
     let lexer = Lexer::new(&bytes);
     let mut parser = Parser::new(lexer);
     parser.advance();
-    let ast = parser.program();
+    let mut ast = parser.program();
     if parser.had_error {
         Err(InterpretError::Compile)
     } else {
         let substitutions = generate_substitutions(&ast, &mut scope);
         match substitutions {
             Ok(substitutions) => {
-                let ast = (&ast).resolve_types(&substitutions, &mut scope)?;
+                ast.resolve_types(&substitutions, &mut scope)?;
 
                 #[cfg(feature = "debug-logging")]
                 eprintln!("{:#?}", ast);

@@ -10,13 +10,7 @@ pub struct Parser<'a> {
     previous: Token<'a>,
     pub had_error: bool,
     panic_mode: bool,
-    locals: Vec<Local<'a>>,
-    scope_depth: usize,
-}
-
-struct Local<'a> {
-    name: &'a str,
-    depth: usize,
+    counter: u64,
 }
 
 impl<'a> Parser<'a> {
@@ -29,9 +23,15 @@ impl<'a> Parser<'a> {
             previous,
             had_error: false,
             panic_mode: false,
-            locals: vec![Local { name: "", depth: 0 }], // TODO idk why i'm doing this yet
-            scope_depth: 0,
+            counter: 0,
+            //locals: vec![Local { name: "", depth: 0 }], // TODO idk why i'm doing this yet. it's
+            //for the script's funtion name: ""
         }
+    }
+
+    fn id(&mut self) -> u64 {
+        self.counter += 1;
+        self.counter
     }
 
     pub fn advance(&mut self) -> () {
@@ -96,7 +96,7 @@ impl<'a> Parser<'a> {
         self.had_error = true;
     }
 
-    fn parse_precedence(&mut self, precedence: Precedence) -> AstNode<'a> {
+    fn parse_precedence(&mut self, precedence: Precedence) -> AstNode {
         self.advance();
         let mut node = match self.previous.tok_type {
             TokenType::LeftParen => self.grouping(),
@@ -104,13 +104,13 @@ impl<'a> Parser<'a> {
             TokenType::Bang => self.unary(),
             TokenType::Integer => self.integer(),
             TokenType::Float => self.float(),
-            TokenType::True => AstNode::new(self.previous.line, AstNodeType::BoolLiteral(true)),
-            TokenType::False => AstNode::new(self.previous.line, AstNodeType::BoolLiteral(false)),
+            TokenType::True => AstNode::new(self.id(), self.previous.line, AstNodeType::BoolLiteral(true)),
+            TokenType::False => AstNode::new(self.id(), self.previous.line, AstNodeType::BoolLiteral(false)),
             TokenType::Str => self.string(),
             TokenType::Identifier => self.variable(),
             _ => {
                 self.error("Expect expression.");
-                AstNode::new(self.previous.line, AstNodeType::Error)
+                AstNode::new(self.id(), self.previous.line, AstNodeType::Error)
             }
         };
 
@@ -133,19 +133,19 @@ impl<'a> Parser<'a> {
                 TokenType::LeftParen => self.call(node),
                 _ => {
                     self.error("Unreachable no infix parse function");
-                    AstNode::new(self.previous.line, AstNodeType::Error)
+                    AstNode::new(self.id(), self.previous.line, AstNodeType::Error)
                 }
             };
         }
         node
     }
 
-    pub fn program(&mut self) -> AstNode<'a> {
+    pub fn program(&mut self) -> AstNode {
         let mut statements = Vec::new();
         while !self.match_tok(TokenType::Eof) {
             statements.push(self.declaration());
         }
-        AstNode::new(1, AstNodeType::Program(statements))
+        AstNode::new(self.id(), 1, AstNodeType::Program(statements))
     }
 
     fn match_tok(&mut self, tok_type: TokenType) -> bool {
@@ -184,7 +184,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn declaration(&mut self) -> AstNode<'a> {
+    fn declaration(&mut self) -> AstNode {
         let result = if self.match_tok(TokenType::Let) {
             self.let_declaration()
         } else if self.match_tok(TokenType::Fun) {
@@ -198,7 +198,7 @@ impl<'a> Parser<'a> {
         result
     }
 
-    fn let_declaration(&mut self) -> AstNode<'a> {
+    fn let_declaration(&mut self) -> AstNode {
         self.consume(TokenType::Identifier, "Expect variable name");
         let variable = self.variable_declaration();
         let line = self.previous.line;
@@ -208,38 +208,27 @@ impl<'a> Parser<'a> {
         );
         let expression = self.expression();
         self.consume(TokenType::SemiColon, "Expect ';' after let statement.");
-        AstNode::new(
+        AstNode::new(self.id(),
             line,
             //AstNodeType::LetStatement(var_name, Box::new(variable), Box::new(expression)),
             AstNodeType::DeclareStatement(Box::new(variable), Box::new(expression)),
         )
     }
 
-    fn variable_declaration(&mut self) -> AstNode<'a> {
-        let var_name = self.previous.source;
-        if self.scope_depth > 0 {
-            self.add_local();
-            AstNode::new(
-                self.previous.line,
-                AstNodeType::LocalVariable(self.locals.len() - 1, var_name),
-            )
-        } else {
-            AstNode::new(self.previous.line, AstNodeType::GlobalVariable(var_name))
-        }
+    fn variable_declaration(&mut self) -> AstNode {
+        AstNode::new(self.id(),self.previous.line, AstNodeType::Variable(self.previous.source.to_string()))
     }
 
-    fn fun_declaration(&mut self) -> AstNode<'a> {
+    fn fun_declaration(&mut self) -> AstNode {
         self.consume(TokenType::Identifier, "Expect variable name");
         let name = self.variable_declaration();
         let line = self.previous.line;
         let func = self.function();
 
-        AstNode::new(line, AstNodeType::DeclareStatement(Box::new(name), Box::new(func)))
+        AstNode::new(self.id(),line, AstNodeType::DeclareStatement(Box::new(name), Box::new(func)))
     }
 
-    fn function(&mut self) -> AstNode<'a> {
-        self.begin_scope();
-
+    fn function(&mut self) -> AstNode {
         self.consume(TokenType::LeftParen, "Expect '(' before function parameters.");
         let line = self.previous.line;
         // TODO args
@@ -252,23 +241,15 @@ impl<'a> Parser<'a> {
 
         self.consume(TokenType::LeftBrace, "Expect '{' after return type");
         let body = self.block();
-        self.end_scope();
 
-        AstNode::new(line, AstNodeType::FunctionDef{
-            return_type,
+        AstNode::new(self.id(),line, AstNodeType::FunctionDef{
+            return_type: return_type.to_string(),
             params,
             body: Box::new(body),
         })
     }
 
-    fn add_local(&mut self) -> () {
-        self.locals.push(Local {
-            name: self.previous.source,
-            depth: self.scope_depth,
-        })
-    }
-
-    fn statement(&mut self) -> AstNode<'a> {
+    fn statement(&mut self) -> AstNode {
         if self.match_tok(TokenType::Print) {
             self.print_statement()
         } else if self.match_tok(TokenType::If) {
@@ -276,26 +257,13 @@ impl<'a> Parser<'a> {
         } else if self.match_tok(TokenType::While) {
             self.while_statement()
         } else if self.match_tok(TokenType::LeftBrace) {
-            self.begin_scope();
-            let block = self.block();
-            self.end_scope();
-            block
+            self.block()
         } else {
             self.expression_statement()
         }
     }
 
-    fn begin_scope(&mut self) -> () {
-        self.scope_depth += 1;
-    }
-
-    fn end_scope(&mut self) -> () {
-        self.scope_depth -= 1;
-        let scope_depth = self.scope_depth;
-        self.locals.retain(|l| l.depth <= scope_depth);
-    }
-
-    fn block(&mut self) -> AstNode<'a> {
+    fn block(&mut self) -> AstNode {
         let mut statements = Vec::new();
         let line = self.previous.line;
         while !self.check(TokenType::RightBrace) && !self.check(TokenType::Eof) {
@@ -303,10 +271,10 @@ impl<'a> Parser<'a> {
         }
 
         self.consume(TokenType::RightBrace, "Expect '}' after block.");
-        AstNode::new(line, AstNodeType::Block(statements))
+        AstNode::new(self.id(),line, AstNodeType::Block(statements))
     }
 
-    fn if_statement(&mut self) -> AstNode<'a> {
+    fn if_statement(&mut self) -> AstNode {
         let condition = self.expression();
         let line = self.previous.line;
         self.consume(TokenType::LeftBrace, "Expect '{' after if condition.");
@@ -319,9 +287,9 @@ impl<'a> Parser<'a> {
                 self.block()
             }
         } else {
-            AstNode::new(self.previous.line, AstNodeType::Block(Vec::new()))
+            AstNode::new(self.id(),self.previous.line, AstNodeType::Block(Vec::new()))
         };
-        AstNode::new(
+        AstNode::new(self.id(),
             line,
             AstNodeType::IfStatement(
                 Box::new(condition),
@@ -331,87 +299,70 @@ impl<'a> Parser<'a> {
         )
     }
 
-    fn while_statement(&mut self) -> AstNode<'a> {
+    fn while_statement(&mut self) -> AstNode {
         let condition = self.expression();
         let line = self.previous.line;
         self.consume(TokenType::LeftBrace, "Expect '{' after if condition.");
         let loop_block = self.block();
-        AstNode::new(
+        AstNode::new(self.id(),
             line,
             AstNodeType::WhileStatement(Box::new(condition), Box::new(loop_block)),
         )
     }
 
-    fn print_statement(&mut self) -> AstNode<'a> {
+    fn print_statement(&mut self) -> AstNode {
         let line = self.previous.line;
         let e = self.expression();
         self.consume(TokenType::SemiColon, "Expect ';' after print statement.");
-        AstNode::new(line, AstNodeType::PrintStatement(Box::new(e)))
+        AstNode::new(self.id(),line, AstNodeType::PrintStatement(Box::new(e)))
     }
 
-    fn expression_statement(&mut self) -> AstNode<'a> {
+    fn expression_statement(&mut self) -> AstNode {
         let line = self.previous.line;
         let e = self.expression();
         self.consume(
             TokenType::SemiColon,
             "Expect ';' after expression statement.",
         );
-        AstNode::new(line, AstNodeType::ExpressionStatement(Box::new(e)))
+        AstNode::new(self.id(),line, AstNodeType::ExpressionStatement(Box::new(e)))
     }
 
-    fn expression(&mut self) -> AstNode<'a> {
+    fn expression(&mut self) -> AstNode {
         self.parse_precedence(Precedence::Base)
     }
 
-    fn integer(&self) -> AstNode<'a> {
-        AstNode::new(
+    fn integer(&mut self) -> AstNode {
+        AstNode::new(self.id(),
             self.previous.line,
             AstNodeType::IntLiteral(self.previous.source.parse::<i64>().unwrap()),
         )
     }
 
-    fn float(&self) -> AstNode<'a> {
-        AstNode::new(
+    fn float(&mut self) -> AstNode {
+        AstNode::new(self.id(),
             self.previous.line,
             AstNodeType::FloatLiteral(self.previous.source.parse::<f64>().unwrap()),
         )
     }
 
-    fn string(&self) -> AstNode<'a> {
-        AstNode::new(
+    fn string(&mut self) -> AstNode {
+        AstNode::new(self.id(),
             self.previous.line,
-            AstNodeType::StrLiteral(&self.previous.source[1..self.previous.source.len() - 1]),
+            AstNodeType::StrLiteral(self.previous.source[1..self.previous.source.len() - 1].to_string()),
         )
     }
 
-    fn variable(&self) -> AstNode<'a> {
-        let name = &self.previous.source;
-        if let Some(local_index) = self.resolve_local(name) {
-            AstNode::new(
-                self.previous.line,
-                AstNodeType::LocalVariable(local_index, name),
-            )
-        } else {
-            AstNode::new(self.previous.line, AstNodeType::GlobalVariable(name))
-        }
+    fn variable(&mut self) -> AstNode {
+        AstNode::new(self.id(),self.previous.line, AstNodeType::Variable(self.previous.source.to_string()))
     }
 
-    fn resolve_local(&self, name: &str) -> Option<usize> {
-        self.locals
-            .iter()
-            .enumerate()
-            .rev()
-            .find(|(index, local)| local.name == name)
-            .map(|(index, _)| index)
-    }
-
-    fn grouping(&mut self) -> AstNode<'a> {
+    fn grouping(&mut self) -> AstNode {
         let e = self.expression();
         self.consume(TokenType::RightParen, "Expect ')' after expression.");
         e
     }
 
-    fn unary(&mut self) -> AstNode<'a> {
+    fn unary(&mut self) -> AstNode {
         let operator = match self.previous.tok_type {
             TokenType::Minus => Operator::Neg,
             TokenType::Bang => Operator::Not,
@@ -419,10 +370,10 @@ impl<'a> Parser<'a> {
         };
         let line = self.previous.line;
         let operand = self.parse_precedence(prefix_precedence(&self.previous.tok_type));
-        AstNode::new(line, AstNodeType::Unary(operator, Box::new(operand)))
+        AstNode::new(self.id(),line, AstNodeType::Unary(operator, Box::new(operand)))
     }
 
-    fn binary(&mut self, lhs: AstNode<'a>) -> AstNode<'a> {
+    fn binary(&mut self, lhs: AstNode) -> AstNode {
         let operator = match self.previous.tok_type {
             TokenType::Plus => Operator::Add,
             TokenType::Minus => Operator::Sub,
@@ -442,19 +393,19 @@ impl<'a> Parser<'a> {
         let line = self.previous.line;
         let precedence = infix_right_precedence(&self.previous.tok_type);
         let rhs = self.parse_precedence(precedence);
-        AstNode::new(
+        AstNode::new(self.id(),
             line,
             AstNodeType::Binary(operator, Box::new(lhs), Box::new(rhs)),
         )
     }
 
-    fn call(&mut self, target: AstNode<'a>) -> AstNode<'a> {
+    fn call(&mut self, target: AstNode) -> AstNode {
         let line = self.previous.line;
         let args = self.argument_list();
-        AstNode::new(line, AstNodeType::Call{target: Box::new(target), args})
+        AstNode::new(self.id(),line, AstNodeType::Call{target: Box::new(target), args})
     }
 
-    fn argument_list(&mut self) -> Vec<AstNode<'a>> {
+    fn argument_list(&mut self) -> Vec<AstNode> {
         let mut args = Vec::new();
         // This loop looks weird, but it should parse arg lists with an optional trailing comma
         loop {
