@@ -51,25 +51,6 @@ impl<'a> TCSide<'a> {
     }
 }
 
-impl<'a> From<&TypeParameter> for TCSide<'a> {
-    fn from(type_param: &TypeParameter) -> Self {
-        match type_param {
-            TypeParameter::Any => TCSide::any(),
-            TypeParameter::Number => TCSide::numeric(),
-            TypeParameter::Int => TCSide::basic(TCNodeType::Int),
-            TypeParameter::Float => TCSide::basic(TCNodeType::Float),
-            TypeParameter::Bool => TCSide::basic(TCNodeType::Bool),
-            TypeParameter::Str => TCSide::basic(TCNodeType::Str),
-            /* TODO
-            TypeParameter::Array(inner_type) => TCSide::Constraint(
-                vec![TCNodeType::Array],
-                vec![TCSide::from(inner_type.as_ref())],
-            ),
-            */
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum TCNodeType {
     Int,
@@ -125,56 +106,6 @@ impl error::Error for TypeError {
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub struct FunctionSignature {
-    pub name: String,
-    pub return_type: TypeParameter,
-    pub argument_types: Vec<TypeParameter>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum TypeParameter {
-    Any,
-    Number,
-    Int,
-    Float,
-    Str,
-    Bool,
-    // TODO Array(Box<TypeParameter>),
-}
-
-/*
-pub fn generate_symbol_table(substitutions: &Vec<TypeConstraint>) -> HashMap<String, NodeType> {
-    let mut symbols = HashMap::new();
-    for sub in substitutions.iter() {
-        let TypeConstraint { left, right } = sub;
-        if let Some((k, v)) = get_field_ref_type(left, substitutions) {
-            symbols.insert(k, v);
-        }
-        if let Some((k, v)) = get_field_ref_type(right, substitutions) {
-            symbols.insert(k, v);
-        }
-    }
-
-    symbols
-}
-
-fn get_field_ref_type(
-    side: &TCSide,
-    substitutions: &Vec<TypeConstraint>,
-) -> Option<(String, NodeType)> {
-    if let TCSide::Expr(node) = side {
-        if let SyntaxTreeNode::FieldRef(name) = node {
-            Some((name.to_string(), find_type(node, substitutions)))
-        } else {
-            None
-        }
-    } else {
-        None
-    }
-}
-*/
-
 pub struct Scope<'a> {
     parent: Option<&'a Scope<'a>>,
     variables: HashMap<String, TCNodeType>,
@@ -205,21 +136,6 @@ pub fn find_type<'a>(
     substitutions: &'a Vec<TypeConstraint<'a>>,
 ) -> Option<TCNodeType> {
     find_type_helper(&TCSide::Expr(node), substitutions, &mut Vec::new())
-    /*
-        .map(|tc_type| match tc_type {
-        TCNodeType::Int => DataType::Int,
-        TCNodeType::Float => DataType::Float,
-        TCNodeType::Bool => DataType::Bool,
-        TCNodeType::Str => DataType::Str,
-        /* TODO
-           TCNodeType::Array => {
-           let child = children.get(0).unwrap();
-           let inner_type = find_type_helper(&child, substitutions, &mut Vec::new());
-           inner_type.map(|inner_type| NodeType::Array(Box::new(inner_type)))
-           }
-        */
-    })
-           */
 }
 
 fn find_type_helper<'a>(
@@ -374,32 +290,52 @@ fn generate_constraints<'a, 'b>(
             Ok(constraints)
         }
         AstNodeType::Program(statements) => {
-            let mut constraints = Vec::new();
+            let mut constraints = vec![
+                TypeConstraint::new(TCSide::Expr(node), TCSide::basic(TCNodeType::Nil))
+            ];
             for statement in statements.iter() {
                 constraints.append(&mut generate_constraints(statement, scope)?);
             }
             Ok(constraints)
         }
-        AstNodeType::PrintStatement(e) => Ok(generate_constraints(e, scope)?),
-        AstNodeType::ExpressionStatement(e) => Ok(generate_constraints(e, scope)?),
+        AstNodeType::PrintStatement(e) => {
+            let mut constraints = vec![
+                TypeConstraint::new(TCSide::Expr(node), TCSide::basic(TCNodeType::Nil))
+            ];
+            constraints.append(&mut generate_constraints(e, scope)?);
+            Ok(constraints)
+        },
+        AstNodeType::ExpressionStatement(e) => {
+            let mut constraints = vec![
+                TypeConstraint::new(TCSide::Expr(node), TCSide::basic(TCNodeType::Nil))
+            ];
+            constraints.append(&mut generate_constraints(e, scope)?);
+            Ok(constraints)
+        },
         AstNodeType::DeclareStatement(lhs, rhs) => {
-            let mut constraints = vec![TypeConstraint::new(TCSide::Expr(lhs), TCSide::Expr(rhs))];
+            let mut constraints = vec![
+                TypeConstraint::new(TCSide::Expr(node), TCSide::basic(TCNodeType::Nil)),
+                TypeConstraint::new(TCSide::Expr(lhs), TCSide::Expr(rhs)),
+            ];
             //constraints.append(&mut generate_constraints(lhs, scope)?);
             constraints.append(&mut generate_constraints(rhs, scope)?);
             Ok(constraints)
         }
         AstNodeType::Block(statements) => {
             let mut block_scope = Scope::new(Some(scope));
-            let mut constraints = Vec::new();
+            let mut constraints = vec![
+                // TODO make this node have type and value of last statement like rust
+                TypeConstraint::new(TCSide::Expr(node), TCSide::basic(TCNodeType::Nil))
+            ];
             for statement in statements.iter() {
                 constraints.append(&mut generate_constraints(statement, &mut block_scope)?);
             }
             Ok(constraints)
         }
         AstNodeType::IfStatement(condition, then_block, else_block) => {
-            let mut constraints = vec![TypeConstraint::new(
-                TCSide::Expr(condition),
-                TCSide::basic(TCNodeType::Bool),
+            let mut constraints = vec![
+                TypeConstraint::new(TCSide::Expr(node), TCSide::basic(TCNodeType::Nil)),
+                TypeConstraint::new(TCSide::Expr(condition), TCSide::basic(TCNodeType::Bool),
             )];
             constraints.append(&mut generate_constraints(condition, scope)?);
             constraints.append(&mut generate_constraints(then_block, scope)?);
@@ -407,7 +343,9 @@ fn generate_constraints<'a, 'b>(
             Ok(constraints)
         }
         AstNodeType::WhileStatement(condition, loop_block) => {
-            let mut constraints = vec![TypeConstraint::new(
+            let mut constraints = vec![
+                TypeConstraint::new(TCSide::Expr(node), TCSide::basic(TCNodeType::Nil)),
+                TypeConstraint::new(
                 TCSide::Expr(condition),
                 TCSide::basic(TCNodeType::Bool),
             )];
