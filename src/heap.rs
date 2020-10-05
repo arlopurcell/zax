@@ -34,8 +34,7 @@ impl<'a> Heap {
             panic!("Heap overflow");
         }
         while self.objects.contains_key(&self.counter) {
-            let (counter, _) = self.counter.overflowing_add(1);
-            self.counter = counter;
+            self.counter = self.counter.wrapping_add(1);
         }
         self.objects.insert(self.counter, o);
         self.counter
