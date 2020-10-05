@@ -268,7 +268,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn identifier(&mut self) -> Token<'a> {
-        while self.peek().is_alphanumeric() {
+        while self.peek().is_alphanumeric() || self.peek() == '_' {
             self.current += 1;
         }
         self.make_token(self.identifier_type())

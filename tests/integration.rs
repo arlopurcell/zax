@@ -41,3 +41,6 @@ macro_rules! zax_test {
 zax_test!(local_scope);
 zax_test!(while_loop);
 zax_test!(func_call);
+zax_test!(func_call_type_param);
+zax_test!(func_call_return_type);
+zax_test!(top_level_return, 1);

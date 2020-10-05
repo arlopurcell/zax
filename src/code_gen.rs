@@ -5,9 +5,11 @@ pub struct Generator {
     chunk_builder: ChunkBuilder,
     locals: Vec<Local>,
     pub scope_depth: usize,
+    pub func_type: FunctionType,
 }
 
-enum FunctionType {
+#[derive(PartialEq)]
+pub enum FunctionType {
     Function,
     Script,
 }
@@ -21,13 +23,19 @@ struct Local {
 }
 
 impl Generator {
-    pub fn new() -> Self {
+    pub fn new(func_type: FunctionType) -> Self {
         // TODO accept function name as argument for debugging
         Self {
             //function: FunctionObj::new(),
             chunk_builder: ChunkBuilder::new(),
-            locals: Vec::new(),
+            locals: vec![Local{
+                name: "".to_string(),
+                depth: 0,
+                index: 0, 
+                size: 8
+            }], // local representing the function object
             scope_depth: 0,
+            func_type,
         }
     }
 
@@ -147,7 +155,7 @@ impl Generator {
     }
 
     pub fn end(mut self, arity: u8) -> FunctionObj {
-        &mut self.emit_byte(ByteCode::Return, 0);
+        &mut self.emit_byte(ByteCode::Return(0), 0);
         FunctionObj::new(Chunk::new(self.chunk_builder), arity)
     }
 }

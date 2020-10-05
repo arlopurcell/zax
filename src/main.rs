@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
+use std::process;
 
 mod ast;
 mod chunk;
@@ -19,11 +20,20 @@ use crate::vm::VM;
 
 fn main() -> InterpretResult {
     let vm = VM::new();
-    if let Some(file_name) = std::env::args().nth(1) {
+    let result = if let Some(file_name) = std::env::args().nth(1) {
         run_file(&file_name, vm)
     } else {
         repl(vm)
-    }
+    };
+
+    match result {
+        Err(InterpretError::Compile) => process::exit(1),
+        Err(InterpretError::Runtime) => process::exit(2),
+        Err(InterpretError::File) => process::exit(3),
+        Err(InterpretError::Bug) => process::exit(4),
+        Ok(_) => (),
+    };
+    result
 }
 
 fn repl(mut vm: VM) -> InterpretResult {

@@ -2,7 +2,7 @@ use std::convert::{TryFrom, TryInto};
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum ByteCode {
-    Return,
+    Return(u8),
     PrintInt,
     PrintFloat,
     PrintBool,
@@ -57,8 +57,7 @@ pub enum ByteCode {
 impl ByteCode {
     pub fn size(&self) -> u8 {
         match self {
-            Self::Return
-            | Self::PrintInt
+            Self::PrintInt
             | Self::PrintFloat
             | Self::PrintBool
             | Self::PrintObject
@@ -91,7 +90,8 @@ impl ByteCode {
             | Self::Pop8
             | Self::Pop1
             | Self::NoOp => 1,
-            Self::Constant1(_)
+            Self::Return(_)
+            | Self::Constant1(_)
             | Self::Constant8(_)
             | Self::DefineGlobal1(_)
             | Self::DefineGlobal8(_)
@@ -165,7 +165,7 @@ impl Chunk {
     pub fn get_code(&self, offset: usize) -> ByteCode {
         let byte = self.code().get(offset).unwrap();
         match byte {
-            0x0 => ByteCode::Return,
+            0x0 => ByteCode::Return(self.get_u8(offset + 1)),
             0x1 => ByteCode::PrintInt,
             0x2 => ByteCode::PrintFloat,
             0x3 => ByteCode::PrintBool,
@@ -312,8 +312,10 @@ impl ChunkBuilder {
 
     pub fn append(&mut self, code: ByteCode, line: u32) -> () {
         match code {
-            ByteCode::Return => {
+            ByteCode::Return(arg) => {
                 self.code.push(0x0);
+                self.code.push(arg);
+                self.lines.push(line);
                 self.lines.push(line);
             }
             ByteCode::PrintInt => {

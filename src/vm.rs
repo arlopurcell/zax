@@ -62,13 +62,21 @@ impl CallFrame {
 }
 
 impl Stack {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
     fn skip_peek_bytes_8(&self, skip: usize) -> &[u8] {
         let start_index = self.0.len() - skip - 8;
         &self.0[start_index..start_index + 8]
     }
 
-    fn pop_bulk(&mut self, bytes: usize) -> () {
-        self.0.truncate(self.0.len() - bytes);
+    fn pop_bulk(&mut self, bytes: usize) -> Vec<u8> {
+        self.0.drain(self.0.len() - bytes..).collect()
+    }
+
+    fn truncate(&mut self, size: usize) -> () {
+        self.0.truncate(size);
     }
 
     fn pop_bytes_8(&mut self) -> [u8; 8] {
@@ -142,7 +150,7 @@ impl Stack {
 impl VM {
     pub fn new() -> Self {
         Self {
-            stack: Stack(Vec::new()),
+            stack: Stack(vec![0,0,0,0,0,0,0,0]), // 8 bytes to represent the root "function"
             heap: Heap::new(),
             globals: HashMap::new(),
             frames: Vec::with_capacity(u8::MAX as usize),
@@ -208,14 +216,15 @@ impl VM {
 
             #[cfg(feature = "debug-logging")]
             {
-                print!(" stack: ");
+                eprintln!();
+                eprint!(" stack: ");
                 for (index, slot) in stack.0.iter().enumerate() {
                     if index == current_frame.stack_index {
-                        print!(" | ");
+                        eprint!(" | ");
                     }
-                    print!("[ {} ]", slot);
+                    eprint!("[ {} ]", slot);
                 }
-                println!();
+                eprintln!();
                 self.heap.print();
                 current_frame
                     .chunk(&self.heap)
@@ -225,15 +234,15 @@ impl VM {
             let bc = current_frame.get_code(&self.heap);
             current_frame.ip += bc.size() as usize;
             match bc {
-                ByteCode::Return => {
-                    // TODO pop result
+                ByteCode::Return(size) => {
+                    let result = self.stack.pop_bulk(size as usize);
                     let old_frame = self.frames.pop().unwrap();
                     if self.frames.len() == 0 {
                         return Ok(());
                     }
 
-                    self.stack.pop_bulk(old_frame.stack_index);
-                    // TODO push result
+                    self.stack.truncate(old_frame.stack_index);
+                    self.stack.push(&result);
                 }
                 ByteCode::PrintInt => println!("{}", self.stack.pop_int()),
                 ByteCode::PrintFloat => println!("{}", self.stack.pop_float()),
@@ -507,7 +516,7 @@ impl VM {
                 ByteCode::Call(args_bytes) => {
                     let heap_index = stack.skip_peek_bytes_8(args_bytes);
                     let heap_index = usize::from_be_bytes(heap_index.try_into().unwrap());
-                    let frame = CallFrame::new(heap_index, args_bytes);
+                    let frame = CallFrame::new(heap_index, self.stack.len() - (args_bytes + 8)); // To account for function object
 
                     #[cfg(feature = "debug-logging")]
                     frame.chunk(&self.heap).disassemble("function"); // TODO get/use function name

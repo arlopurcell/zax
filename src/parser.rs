@@ -225,6 +225,7 @@ impl<'a> Parser<'a> {
 
     fn variable_declaration(&mut self) -> AstNode {
         self.consume(TokenType::Identifier, "Expect variable name");
+        let var_name = self.previous.source;
         let type_annotation = if self.match_tok(TokenType::Colon) {
             self.consume(TokenType::Identifier, "Expect type annotation after ':'");
             Some(self.previous.source.to_string())
@@ -232,7 +233,7 @@ impl<'a> Parser<'a> {
         AstNode::new(
             self.id(),
             self.previous.line,
-            AstNodeType::Variable(self.previous.source.to_string(), type_annotation),
+            AstNodeType::Variable(var_name.to_string(), type_annotation),
         )
     }
 
@@ -284,6 +285,8 @@ impl<'a> Parser<'a> {
             self.while_statement()
         } else if self.match_tok(TokenType::LeftBrace) {
             self.block()
+        } else if self.match_tok(TokenType::Return) {
+            self.return_statement()
         } else {
             self.expression_statement()
         }
@@ -350,7 +353,7 @@ impl<'a> Parser<'a> {
     }
 
     fn expression_statement(&mut self) -> AstNode {
-        let line = self.previous.line;
+        let line = self.current.line;
         let e = self.expression();
         self.consume(
             TokenType::SemiColon,
@@ -360,6 +363,24 @@ impl<'a> Parser<'a> {
             self.id(),
             line,
             AstNodeType::ExpressionStatement(Box::new(e)),
+        )
+    }
+
+    fn return_statement(&mut self) -> AstNode {
+        let line = self.previous.line;
+        let value = if self.check(TokenType::SemiColon) {
+            None
+        } else {
+            Some(Box::new(self.expression()))
+        };
+        self.consume(
+            TokenType::SemiColon,
+            "Expect ';' after return statement.",
+        );
+        AstNode::new(
+            self.id(),
+            line,
+            AstNodeType::ReturnStatement(value),
         )
     }
 

@@ -1,0 +1,5 @@
+fun areWeHavingItYet(x: int) -> nil {
+    print x;
+}
+
+areWeHavingItYet(4);

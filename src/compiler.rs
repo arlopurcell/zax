@@ -1,4 +1,4 @@
-use crate::code_gen::Generator;
+use crate::code_gen::{Generator, FunctionType};
 use crate::common::InterpretError;
 use crate::heap::Heap;
 use crate::lexer::Lexer;
@@ -26,10 +26,8 @@ pub fn compile(
                 #[cfg(feature = "debug-logging")]
                 eprintln!("{:#?}", ast);
 
-                let mut generator = Generator::new();
-                ast.generate(&mut generator, heap);
-                let func_obj = generator.end(0);
-                Ok(func_obj)
+                let mut generator = Generator::new(FunctionType::Script);
+                ast.generate(&mut generator, heap).map(|()| generator.end(0))
             }
             Err(e) => {
                 eprintln!("{:?}", e);
