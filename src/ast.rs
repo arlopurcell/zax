@@ -64,60 +64,6 @@ pub enum Operator {
     Assign,
 }
 
-struct ScopeTracker {
-    locals: Vec<Local>,
-    scope_depth: usize,
-}
-
-struct Local {
-    name: String,
-    depth: usize,
-    index: usize,
-    size: u8,
-}
-
-impl ScopeTracker {
-    fn add_local(&mut self, name: &str, size: u8) -> () {
-        let index = if self.locals.is_empty() {0} else {self.locals.get(self.locals.len() - 1).map(|l| l.index + l.size as usize).unwrap_or(0)};
-        self.locals.push(Local {
-            name: name.to_string(),
-            depth: self.scope_depth,
-            index,
-            size,
-        })
-    }
-
-    fn resolve_local(&self, name: &str) -> Option<usize> {
-        self.locals
-            .iter()
-            .rev()
-            .find(|local| local.name == name)
-            .map(|local| local.index)
-    }
-
-    fn begin_scope(&mut self) -> () {
-        self.scope_depth += 1;
-    }
-
-    fn end_scope(&mut self) -> usize {
-        self.scope_depth -= 1;
-        let scope_depth = self.scope_depth;
-
-        let mut pop_n = 0;
-        let mut truncate_size = 0;
-        for (index, local) in self.locals.iter().enumerate().rev() {
-            if local.depth <= self.scope_depth {
-                truncate_size = index + 1;
-                pop_n = local.index + local.size as usize;
-            }
-        }
-
-        self.locals.truncate(truncate_size);
-        pop_n
-        //self.locals.retain(|l| l.depth <= scope_depth);
-    }
-}
-
 impl AstNode {
     pub fn new(id: u64, line: u32, node_type: AstNodeType) -> Self {
         Self {
@@ -185,19 +131,13 @@ impl AstNode {
         }
     }
     */
-    pub fn generate(self, generator: &mut Generator, heap: &mut Heap) -> () {
-        self.generate_rec(generator, heap, &mut ScopeTracker{
-            locals: Vec::new(),
-            scope_depth: 0,
-        })
-    }
 
     // TODO static analysis to check lvalues
-    fn generate_rec(self, generator: &mut Generator, heap: &mut Heap, scope: &mut ScopeTracker) -> () {
-        self.generate_with_lvalue(generator, heap, scope, false)
+    pub fn generate(self, generator: &mut Generator, heap: &mut Heap) -> () {
+        self.generate_with_lvalue(generator, heap, false)
     }
 
-    fn generate_with_lvalue(self, generator: &mut Generator, heap: &mut Heap, scope: &mut ScopeTracker, lvalue: bool) -> () {
+    fn generate_with_lvalue(self, generator: &mut Generator, heap: &mut Heap, lvalue: bool) -> () {
         /*
         let block_bytes = match &self.node_type {
             AstNodeType::Block(_) | AstNodeType::Call{target:_, args:_} => self.local_var_bytes(false),
@@ -207,24 +147,24 @@ impl AstNode {
         match self.node_type {
             AstNodeType::Program(statements) => {
                 for statement in statements {
-                    statement.generate_rec(generator, heap, scope);
+                    statement.generate(generator, heap);
                 }
             }
             AstNodeType::FunctionDef{return_type: _, params: _, body} => {
                 // TODO pass in function name for debugging
                 let mut child_generator = Generator::new();
 
-                scope.begin_scope();
+                generator.begin_scope();
                 // TODO args
 
                 if let AstNodeType::Block(statements) = body.node_type {
                     for s in statements {
-                        s.generate_rec(&mut child_generator, heap, scope);
+                        s.generate(&mut child_generator, heap);
                     }
                 } else {
                     panic!("Function body must be a block");
                 }
-                let block_bytes = scope.end_scope();
+                let block_bytes = generator.end_scope();
                 // TODO implement pop n
                 for _ in 0..block_bytes {
                     generator.emit_byte(ByteCode::Pop1, self.line)
@@ -237,10 +177,10 @@ impl AstNode {
                 generator.emit_constant_8(&heap_index.to_be_bytes(), self.line)
             },
             AstNodeType::Call{target, args} => {
-                target.generate_rec(generator, heap, scope);
+                target.generate(generator, heap);
                 let size = args.iter().map(|a| a.data_type.expect("function argument must have type").size() as usize).sum();
                 for arg in args {
-                    arg.generate_rec(generator, heap, scope);
+                    arg.generate(generator, heap);
                 }
                 generator.emit_byte(ByteCode::Call(size), self.line);
             },
@@ -254,7 +194,7 @@ impl AstNode {
                     Some(DataType::Nil) => panic!("Can't print nil"),
                     None => panic!("None arg type for print statement: {:?}", e.data_type),
                 };
-                e.generate_rec(generator, heap, scope);
+                e.generate(generator, heap);
                 generator.emit_byte(code, self.line)
             }
             AstNodeType::ExpressionStatement(e) => {
@@ -266,12 +206,12 @@ impl AstNode {
                     Some(DataType::Nil) => ByteCode::NoOp,
                     _ => panic!("Invalid type for expression statement: {:?}", e.data_type),
                 };
-                e.generate_rec(generator, heap, scope);
+                e.generate(generator, heap);
                 generator.emit_byte(code, self.line)
             }
             AstNodeType::DeclareStatement(lhs, rhs) => match lhs.node_type {
                 AstNodeType::Variable(name) => {
-                    if scope.scope_depth == 0 {
+                    if generator.scope_depth == 0 {
                         let constant = identifier_constant(&name, heap, generator);
                         let code = match rhs.data_type {
                             Some(DataType::Int) | Some(DataType::Float) | Some(DataType::Str) | Some(DataType::Function)=> {
@@ -280,54 +220,54 @@ impl AstNode {
                             Some(DataType::Bool) => ByteCode::DefineGlobal1(constant),
                             Some(DataType::Nil) | None => panic!("No data type for global variable")
                         };
-                        rhs.generate_rec(generator, heap, scope);
+                        rhs.generate(generator, heap);
                         generator.emit_byte(code, self.line)
                     } else {
-                        scope.add_local(&name, self.data_type.expect("Variable must have data type").size());
+                        generator.add_local(&name, lhs.data_type.expect("Variable must have data type").size());
 
-                        rhs.generate_rec(generator, heap, scope);
+                        rhs.generate(generator, heap);
                         // simply allow result of rhs to remain on the stack
                     }
                 }
                 _ => panic!("Invalid lhs for let"),
             },
             AstNodeType::Block(statements) => {
-                scope.begin_scope();
+                generator.begin_scope();
                 for s in statements {
-                    s.generate_rec(generator, heap, scope);
+                    s.generate(generator, heap);
                 }
-                let block_bytes = scope.end_scope();
+                let block_bytes = generator.end_scope();
                 // TODO implement pop n
                 for _ in 0..block_bytes {
                     generator.emit_byte(ByteCode::Pop1, self.line)
                 }
             }
             AstNodeType::IfStatement(condition, then_block, else_block) => {
-                condition.generate_rec(generator, heap, scope);
+                condition.generate(generator, heap);
                 let then_jump = generator.emit_jump_if_false(self.line);
 
                 generator.emit_byte(ByteCode::Pop1, self.line); // pop condition
-                then_block.generate_rec(generator, heap, scope);
+                then_block.generate(generator, heap);
 
                 let else_jump = generator.emit_jump(self.line);
                 generator.patch_jump(then_jump);
 
                 generator.emit_byte(ByteCode::Pop1, self.line); // pop condition
-                else_block.generate_rec(generator, heap, scope);
+                else_block.generate(generator, heap);
                 generator.patch_jump(else_jump);
             }
             AstNodeType::WhileStatement(condition, loop_block) => {
                 let loop_start = generator.loop_start();
-                condition.generate_rec(generator, heap, scope);
+                condition.generate(generator, heap);
                 let exit_jump = generator.emit_jump_if_false(self.line);
                 generator.emit_byte(ByteCode::Pop1, self.line); // pop condition
-                loop_block.generate_rec(generator, heap, scope);
+                loop_block.generate(generator, heap);
                 generator.emit_loop(loop_start, self.line);
                 generator.patch_jump(exit_jump);
                 generator.emit_byte(ByteCode::Pop1, self.line); // pop condition
             }
             AstNodeType::Variable(name) => if !lvalue {
-                if let Some(local_index) = scope.resolve_local(&name) {
+                if let Some(local_index) = generator.resolve_local(&name) {
                     let code = match &self.data_type {
                         Some(DataType::Int) | Some(DataType::Float) | Some(DataType::Str) => {
                             ByteCode::GetLocal8(local_index)
@@ -371,7 +311,7 @@ impl AstNode {
                     Operator::Not => ByteCode::Not,
                     _ => panic!("Unexpected unary code gen"),
                 };
-                operand.generate_rec(generator, heap, scope);
+                operand.generate(generator, heap);
                 generator.emit_byte(code, self.line)
             }
             AstNodeType::Binary(operator, lhs, rhs) => {
@@ -439,23 +379,23 @@ impl AstNode {
                             Some(DataType::Bool) => true,
                             _ => panic!("Unexpected data type for let statement"),
                         };
-                        let code = lhs.get_lvalue_code(heap, generator, one_byte, scope);
-                        lhs.generate_with_lvalue(generator, heap, scope, true);
-                        rhs.generate_rec(generator, heap, scope);
+                        let code = lhs.get_lvalue_code(heap, generator, one_byte);
+                        lhs.generate_with_lvalue(generator, heap, true);
+                        rhs.generate(generator, heap);
                         generator.emit_byte(code, self.line);
                         return;
                     }
                     Operator::And => {
-                        lhs.generate_rec(generator, heap, scope);
+                        lhs.generate(generator, heap);
                         let end_jump = generator.emit_jump_if_false(self.line);
                         // If lhs was true, pop lhs value and use value of rhs
                         generator.emit_byte(ByteCode::Pop1, self.line);
-                        rhs.generate_rec(generator, heap, scope);
+                        rhs.generate(generator, heap);
                         generator.patch_jump(end_jump);
                         return;
                     }
                     Operator::Or => {
-                        lhs.generate_rec(generator, heap, scope);
+                        lhs.generate(generator, heap);
                         // If lhs was false jump over the unconditional jump
                         let else_jump = generator.emit_jump_if_false(self.line);
                         // else lhs was true, so jump to the end
@@ -464,14 +404,14 @@ impl AstNode {
 
                         // If lhs was false, pop lhs value and use rhs value
                         generator.emit_byte(ByteCode::Pop1, self.line);
-                        rhs.generate_rec(generator, heap, scope);
+                        rhs.generate(generator, heap);
                         generator.patch_jump(end_jump);
                         return;
                     }
                     _ => panic!("Unexpected binary code gen"),
                 };
-                lhs.generate_rec(generator, heap, scope);
-                rhs.generate_rec(generator, heap, scope);
+                lhs.generate(generator, heap);
+                rhs.generate(generator, heap);
                 generator.emit_byte(code, self.line)
             }
             AstNodeType::Error => panic!("Shouldn't try to generate code for Error node"),
@@ -510,11 +450,10 @@ impl AstNode {
         heap: &mut Heap,
         generator: &mut Generator,
         one_byte: bool,
-        scope: &ScopeTracker,
     ) -> ByteCode {
         match &self.node_type {
             AstNodeType::Variable(name) => {
-                if let Some(local_index) = scope.resolve_local(&name) {
+                if let Some(local_index) = generator.resolve_local(&name) {
                     if one_byte {
                         ByteCode::SetLocal1(local_index)
                     } else {

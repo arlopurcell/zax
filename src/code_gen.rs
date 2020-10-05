@@ -2,8 +2,9 @@ use crate::chunk::{ByteCode, Chunk, ChunkBuilder};
 use crate::object::FunctionObj;
 
 pub struct Generator {
-    //function: FunctionObj,
     chunk_builder: ChunkBuilder,
+    locals: Vec<Local>,
+    pub scope_depth: usize,
 }
 
 enum FunctionType {
@@ -11,6 +12,13 @@ enum FunctionType {
     Script,
 }
 
+#[derive(Debug)]
+struct Local {
+    name: String,
+    depth: usize,
+    index: usize,
+    size: u8,
+}
 
 impl Generator {
     pub fn new() -> Self {
@@ -18,7 +26,48 @@ impl Generator {
         Self { 
             //function: FunctionObj::new(), 
             chunk_builder: ChunkBuilder::new(),
+            locals: Vec::new(),
+            scope_depth: 0,
         }
+    }
+
+    pub fn add_local(&mut self, name: &str, size: u8) -> () {
+        let index = if self.locals.is_empty() {0} else {self.locals.get(self.locals.len() - 1).map(|l| l.index + l.size as usize).unwrap_or(0)};
+        self.locals.push(Local {
+            name: name.to_string(),
+            depth: self.scope_depth,
+            index,
+            size,
+        })
+    }
+
+    pub fn resolve_local(&self, name: &str) -> Option<usize> {
+        self.locals
+            .iter()
+            .rev()
+            .find(|local| local.name == name)
+            .map(|local| local.index)
+    }
+
+    pub fn begin_scope(&mut self) -> () {
+        self.scope_depth += 1;
+    }
+
+    pub fn end_scope(&mut self) -> usize {
+        self.scope_depth -= 1;
+
+        let mut pop_n = 0;
+        let mut truncate_size = 0;
+        for (index, local) in self.locals.iter().enumerate().rev() {
+            if local.depth <= self.scope_depth {
+                truncate_size = index + 1;
+                pop_n = local.index + local.size as usize;
+            }
+        }
+
+        self.locals.truncate(truncate_size);
+        pop_n
+        //self.locals.retain(|l| l.depth <= scope_depth);
     }
 
     /*
