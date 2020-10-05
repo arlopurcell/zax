@@ -6,13 +6,11 @@ use crate::common::{InterpretError, InterpretResult};
 use crate::compiler::compile;
 use crate::heap::Heap;
 use crate::object::{FunctionObj, ObjType, Object};
-use crate::type_check::Scope;
 
-pub struct VM<'a> {
+pub struct VM {
     stack: Stack,
     heap: Heap,
     globals: HashMap<String, Vec<u8>>,
-    type_scope: Scope<'a>,
     frames: Vec<CallFrame>,
 }
 
@@ -141,19 +139,18 @@ impl Stack {
     }
 }
 
-impl<'a> VM<'a> {
+impl VM {
     pub fn new() -> Self {
         Self {
             stack: Stack(Vec::new()),
             heap: Heap::new(),
             globals: HashMap::new(),
-            type_scope: Scope::new(None),
             frames: Vec::with_capacity(u8::MAX as usize),
         }
     }
 
     pub fn interpret(&mut self, source: &str) -> InterpretResult {
-        let main_func = compile(source, &mut self.heap, &mut self.type_scope)?;
+        let main_func = compile(source, &mut self.heap)?;
 
         #[cfg(feature = "debug-logging")]
         main_func.chunk.disassemble("main");
@@ -204,7 +201,6 @@ impl<'a> VM<'a> {
                 stack,
                 heap: _,
                 globals: _,
-                type_scope: _,
                 frames,
             } = self;
             let last_index = frames.len() - 1;

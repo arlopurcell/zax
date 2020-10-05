@@ -225,15 +225,20 @@ impl<'a> Parser<'a> {
 
     fn variable_declaration(&mut self) -> AstNode {
         self.consume(TokenType::Identifier, "Expect variable name");
+        let type_annotation = if self.match_tok(TokenType::Colon) {
+            self.consume(TokenType::Identifier, "Expect type annotation after ':'");
+            Some(self.previous.source.to_string())
+        } else { None };
         AstNode::new(
             self.id(),
             self.previous.line,
-            AstNodeType::Variable(self.previous.source.to_string()),
+            AstNodeType::Variable(self.previous.source.to_string(), type_annotation),
         )
     }
 
     fn fun_declaration(&mut self) -> AstNode {
-        let name = self.variable_declaration();
+        self.consume(TokenType::Identifier, "Expect function name");
+        let name = self.variable();
         let line = self.previous.line;
         let func = self.function();
 
@@ -392,7 +397,7 @@ impl<'a> Parser<'a> {
         AstNode::new(
             self.id(),
             self.previous.line,
-            AstNodeType::Variable(self.previous.source.to_string()),
+            AstNodeType::Variable(self.previous.source.to_string(), None),
         )
     }
 
@@ -458,7 +463,6 @@ impl<'a> Parser<'a> {
     }
 
     fn comma_separated(&mut self, inner: InnerParser, end_tok: TokenType, context: &'static str) -> Vec<AstNode> {
-        eprintln!("starting comma separated list");
         let mut args = Vec::new();
         // This loop looks weird, but it should parse arg lists with an optional trailing comma
         loop {

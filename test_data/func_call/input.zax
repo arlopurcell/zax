@@ -1,4 +1,4 @@
-fun areWeHavingItYet() -> Void {
+fun areWeHavingItYet() -> nil {
     print "yes we are!";
 }
 

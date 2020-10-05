@@ -3,6 +3,7 @@ use std::error;
 use std::fmt;
 
 use crate::ast::{AstNode, AstNodeType, Operator};
+use crate::common::InterpretError;
 
 #[derive(Debug)]
 pub struct TypeConstraint {
@@ -62,6 +63,22 @@ pub enum TCNodeType {
     // TOOD Array,
 }
 
+impl TCNodeType {
+    fn try_from(s: &str) -> Result<Self, TypeError> {
+        match s {
+            "int" => Ok(Self::Int),
+            "float" => Ok(Self::Float),
+            "bool" => Ok(Self::Bool),
+            "str" => Ok(Self::Str),
+            "nil" => Ok(Self::Nil),
+            _ => {
+                // TODO print something useful
+                Err(TypeError::InvalidTypeAnnonation(s.to_string()))
+            }
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum DataType {
     Int,
@@ -89,7 +106,7 @@ pub enum TypeError {
     Unknown,
     UnknownFunction(String),
     ArgNumber(usize, usize),
-    InvalidFieldRef(String),
+    InvalidTypeAnnonation(String),
 }
 
 impl fmt::Display for TypeError {
@@ -105,7 +122,7 @@ impl fmt::Display for TypeError {
                 "Called function with wrong number of arguments. Expected {}, Found {}",
                 expected, found
             ),
-            TypeError::InvalidFieldRef(name) => write!(f, "Invalid field name: {}", name,),
+            TypeError::InvalidTypeAnnonation(name) => write!(f, "Invalid type annotation: {}", name,),
         }
     }
 }
@@ -173,11 +190,11 @@ fn find_type_helper<'a>(
     }
 }
 
-pub fn generate_substitutions<'a>(
+pub fn generate_substitutions(
     node: &AstNode,
-    scope: &'a mut Scope,
 ) -> Result<Vec<TypeConstraint>, TypeError> {
-    let constraints = generate_constraints(node, scope)?;
+    let mut scope = Scope::new(None);
+    let constraints = generate_constraints(node, &mut scope)?;
     unify(constraints)
 }
 
@@ -329,8 +346,12 @@ fn generate_constraints<'a>(
                 TypeConstraint::new(TCSide::Expr(lhs.id), TCSide::Expr(rhs.id)),
             ];
             match &lhs.node_type {
-                AstNodeType::Variable(name) => {
+                AstNodeType::Variable(name, type_annotation) => {
                     scope.insert(&name, TCSide::Expr(rhs.id));
+                    if let Some(type_annotation) = type_annotation {
+                        let var_type = TCNodeType::try_from(&type_annotation)?;
+                        constraints.push(TypeConstraint::new(TCSide::Expr(lhs.id), TCSide::basic(var_type)));
+                    }
                 }
                 _ => panic!("Invalid lhs for let"),
             };
@@ -368,12 +389,17 @@ fn generate_constraints<'a>(
             constraints.append(&mut generate_constraints(loop_block, scope)?);
             Ok(constraints)
         }
-        AstNodeType::Variable(name) => {
-            let constraints = if let Some(tc_side) = scope.get(name) {
+        AstNodeType::Variable(name, type_annotation) => {
+            let mut constraints = if let Some(tc_side) = scope.get(name) {
                 vec![TypeConstraint::new(TCSide::Expr(node.id), tc_side)]
             } else {
                 Vec::new()
             };
+
+            if let Some(type_annotation) = type_annotation {
+                let var_type = TCNodeType::try_from(&type_annotation)?;
+                constraints.push(TypeConstraint::new(TCSide::Expr(node.id), TCSide::basic(var_type)));
+            }
             Ok(constraints)
         }
         AstNodeType::FunctionDef {
@@ -381,32 +407,32 @@ fn generate_constraints<'a>(
             params,
             body,
         } => {
-            let mut constraints = vec![TypeConstraint::new(
-                TCSide::Expr(node.id),
-                TCSide::basic(TCNodeType::Function),
-            )];
-            /*
-            let return_type = match *return_type {
-                "Int" => Some(TCNodeType::Int),
-                "Float" => Some(TCNodeType::Float),
-                "Str" => Some(TCNodeType::Str),
-                "Bool" => Some(TCNodeType::Bool),
-                "Void" => None,
-                _ => panic!("Unrecognized return type: {}", return_type), // TODO better error
-            };
-            if let Some(return_type) = return_type {
-                constraints.push(TypeConstraint::new(TCSide::Expr(node.id), TCSide::basic(return_type)));
-            }
-            */
+            let mut scope = Scope::new(None);
+            let scope = &mut scope;
+
+            let mut constraints = Vec::new();
             for param in params.iter() {
                 constraints.append(&mut generate_constraints(param, scope)?);
                 match &param.node_type {
-                    AstNodeType::Variable(name) => {
+                    AstNodeType::Variable(name, type_annotation) => {
                         scope.insert(&name, TCSide::Expr(param.id));
+                        if let Some(type_annotation) = type_annotation {
+                            let param_type = TCNodeType::try_from(&type_annotation)?;
+                            constraints.push(TypeConstraint::new(TCSide::Expr(param.id), TCSide::basic(param_type)));
+                        }
+                        // TODO else fail? i.e. require type annotations on parameters
                     }
                     _ => panic!("Invalid node type for func param"),
                 }
             }
+
+            let return_type = TCNodeType::try_from(return_type)?;
+            constraints.push(
+                TypeConstraint::new(
+                    TCSide::Expr(node.id),
+                    TCSide::Constraint(vec![TCNodeType::Function], params.iter().map(|p| TCSide::Expr(p.id)).collect())
+                ));
+
             constraints.append(&mut generate_constraints(body, scope)?);
             Ok(constraints)
         }

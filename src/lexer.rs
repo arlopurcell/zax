@@ -64,6 +64,7 @@ pub enum TokenType {
     While,
 
     Arrow,
+    Colon,
 
     Error,
     Eof,
@@ -96,6 +97,7 @@ impl<'a> Lexer<'a> {
                 '+' => self.make_token(TokenType::Plus),
                 '/' => self.make_token(TokenType::Slash),
                 '*' => self.make_token(TokenType::Star),
+                ':' => self.make_token(TokenType::Colon),
                 '-' => {
                     if self.match_char('>') {
                         self.make_token(TokenType::Arrow)
@@ -310,7 +312,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn check_keyword(&self, start: usize, rest: &'static str, tok_type: TokenType) -> TokenType {
-        if std::str::from_utf8(&self.source[self.start + start..self.start + start + rest.len()])
+        if self.current - self.start == start + rest.len() && std::str::from_utf8(&self.source[self.start + start..self.start + start + rest.len()])
             .unwrap()
             == rest
         {

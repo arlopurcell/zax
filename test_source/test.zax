@@ -1,7 +1,4 @@
-fun areWeHavingItYet(x) -> Void {
-    if x == 7 {
-        print "it's blah";
-    }
+fun areWeHavingItYet(x: int) -> nil {
     print x;
 }
 

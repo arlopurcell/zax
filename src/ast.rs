@@ -3,7 +3,7 @@ use crate::code_gen::Generator;
 use crate::common::{InterpretError, InterpretResult};
 use crate::heap::Heap;
 use crate::object::{ObjType, Object};
-use crate::type_check::{find_type, DataType, Scope, TCNodeType, TypeConstraint};
+use crate::type_check::{find_type, DataType, TCNodeType, TypeConstraint};
 
 #[derive(Debug, Clone)]
 pub struct AstNode {
@@ -29,7 +29,7 @@ pub enum AstNodeType {
     Unary(Operator, Box<AstNode>),
     Binary(Operator, Box<AstNode>, Box<AstNode>),
 
-    Variable(String),
+    Variable(String, Option<String>),
 
     Call {
         target: Box<AstNode>,
@@ -165,7 +165,7 @@ impl AstNode {
                 let arity = params.len() as u8;
                 for param in params.into_iter() {
                     match param.node_type {
-                        AstNodeType::Variable(name) => {
+                        AstNodeType::Variable(name, _) => {
                             child_generator.add_local(
                                 &name,
                                 param.data_type.expect("Parameter must have data type").size(),
@@ -237,7 +237,7 @@ impl AstNode {
                 generator.emit_byte(code, self.line)
             }
             AstNodeType::DeclareStatement(lhs, rhs) => match lhs.node_type {
-                AstNodeType::Variable(name) => {
+                AstNodeType::Variable(name, _) => {
                     if generator.scope_depth == 0 {
                         let constant = identifier_constant(&name, heap, generator);
                         let code = match rhs.data_type {
@@ -299,7 +299,7 @@ impl AstNode {
                 generator.patch_jump(exit_jump);
                 generator.emit_byte(ByteCode::Pop1, self.line); // pop condition
             }
-            AstNodeType::Variable(name) => {
+            AstNodeType::Variable(name, _) => {
                 if !lvalue {
                     if let Some(local_index) = generator.resolve_local(&name) {
                         let code = match &self.data_type {
@@ -488,7 +488,7 @@ impl AstNode {
         one_byte: bool,
     ) -> ByteCode {
         match &self.node_type {
-            AstNodeType::Variable(name) => {
+            AstNodeType::Variable(name, _) => {
                 if let Some(local_index) = generator.resolve_local(&name) {
                     if one_byte {
                         ByteCode::SetLocal1(local_index)
@@ -512,7 +512,6 @@ impl AstNode {
     pub fn resolve_types(
         &mut self,
         substitutions: &Vec<TypeConstraint>,
-        scope: &mut Scope,
     ) -> InterpretResult {
         let tc_type = find_type(&self, substitutions);
         let data_type = tc_type.map(|tc_type| match tc_type {
@@ -554,47 +553,47 @@ impl AstNode {
         */
         Ok(match &mut self.node_type {
             AstNodeType::Unary(_, operand) => {
-                operand.resolve_types(substitutions, scope)?;
+                operand.resolve_types(substitutions)?;
             }
             AstNodeType::Binary(_, lhs, rhs) => {
-                lhs.resolve_types(substitutions, scope)?;
-                rhs.resolve_types(substitutions, scope)?;
+                lhs.resolve_types(substitutions)?;
+                rhs.resolve_types(substitutions)?;
             }
             AstNodeType::Block(statements) => {
                 let statements: Result<Vec<_>, _> = statements
                     .into_iter()
-                    .map(|s| s.resolve_types(substitutions, scope))
+                    .map(|s| s.resolve_types(substitutions))
                     .collect();
                 statements?;
             }
             AstNodeType::Program(statements) => {
                 let statements: Result<Vec<_>, _> = statements
                     .into_iter()
-                    .map(|s| s.resolve_types(substitutions, scope))
+                    .map(|s| s.resolve_types(substitutions))
                     .collect();
                 statements?;
             }
             AstNodeType::PrintStatement(e) | AstNodeType::ExpressionStatement(e) => {
-                e.resolve_types(substitutions, scope)?;
+                e.resolve_types(substitutions)?;
             }
             AstNodeType::DeclareStatement(lhs, rhs) => {
-                lhs.resolve_types(substitutions, scope)?;
-                rhs.resolve_types(substitutions, scope)?;
+                lhs.resolve_types(substitutions)?;
+                rhs.resolve_types(substitutions)?;
             }
             AstNodeType::IfStatement(condition, then_block, else_block) => {
-                condition.resolve_types(substitutions, scope)?;
-                then_block.resolve_types(substitutions, scope)?;
-                else_block.resolve_types(substitutions, scope)?;
+                condition.resolve_types(substitutions)?;
+                then_block.resolve_types(substitutions)?;
+                else_block.resolve_types(substitutions)?;
             }
             AstNodeType::WhileStatement(condition, loop_block) => {
-                condition.resolve_types(substitutions, scope)?;
-                loop_block.resolve_types(substitutions, scope)?;
+                condition.resolve_types(substitutions)?;
+                loop_block.resolve_types(substitutions)?;
             }
             AstNodeType::Call { target, args } => {
-                target.resolve_types(substitutions, scope)?;
+                target.resolve_types(substitutions)?;
                 let args: Result<Vec<_>, _> = args
                     .into_iter()
-                    .map(|arg| arg.resolve_types(substitutions, scope))
+                    .map(|arg| arg.resolve_types(substitutions))
                     .collect();
                 args?;
             }
@@ -605,16 +604,16 @@ impl AstNode {
             } => {
                 let params: Result<Vec<_>, _> = params
                     .into_iter()
-                    .map(|param| param.resolve_types(substitutions, scope))
+                    .map(|param| param.resolve_types(substitutions))
                     .collect();
                 params?;
-                body.resolve_types(substitutions, scope)?;
+                body.resolve_types(substitutions)?;
             }
             AstNodeType::IntLiteral(_)
             | AstNodeType::FloatLiteral(_)
             | AstNodeType::StrLiteral(_)
             | AstNodeType::BoolLiteral(_)
-            | AstNodeType::Variable(_)
+            | AstNodeType::Variable(_, _)
             | AstNodeType::Error => (),
         })
     }

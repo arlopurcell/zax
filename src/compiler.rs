@@ -4,12 +4,11 @@ use crate::heap::Heap;
 use crate::lexer::Lexer;
 use crate::object::FunctionObj;
 use crate::parser::Parser;
-use crate::type_check::{generate_substitutions, Scope};
+use crate::type_check::generate_substitutions;
 
 pub fn compile(
     source: &str,
     heap: &mut Heap,
-    mut scope: &mut Scope,
 ) -> Result<FunctionObj, InterpretError> {
     let bytes: Vec<_> = source.bytes().collect();
     let lexer = Lexer::new(&bytes);
@@ -19,10 +18,10 @@ pub fn compile(
     if parser.had_error {
         Err(InterpretError::Compile)
     } else {
-        let substitutions = generate_substitutions(&ast, &mut scope);
+        let substitutions = generate_substitutions(&ast);
         match substitutions {
             Ok(substitutions) => {
-                ast.resolve_types(&substitutions, &mut scope)?;
+                ast.resolve_types(&substitutions)?;
 
                 #[cfg(feature = "debug-logging")]
                 eprintln!("{:#?}", ast);

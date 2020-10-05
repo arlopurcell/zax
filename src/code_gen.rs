@@ -58,7 +58,6 @@ impl Generator {
 
     pub fn begin_scope(&mut self) -> () {
         self.scope_depth += 1;
-        eprintln!("Beginning scope depth: {}", self.scope_depth);
     }
 
     pub fn end_scope(&mut self) -> usize {
