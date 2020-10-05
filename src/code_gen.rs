@@ -23,8 +23,8 @@ struct Local {
 impl Generator {
     pub fn new() -> Self {
         // TODO accept function name as argument for debugging
-        Self { 
-            //function: FunctionObj::new(), 
+        Self {
+            //function: FunctionObj::new(),
             chunk_builder: ChunkBuilder::new(),
             locals: Vec::new(),
             scope_depth: 0,
@@ -32,7 +32,14 @@ impl Generator {
     }
 
     pub fn add_local(&mut self, name: &str, size: u8) -> () {
-        let index = if self.locals.is_empty() {0} else {self.locals.get(self.locals.len() - 1).map(|l| l.index + l.size as usize).unwrap_or(0)};
+        let index = if self.locals.is_empty() {
+            0
+        } else {
+            self.locals
+                .get(self.locals.len() - 1)
+                .map(|l| l.index + l.size as usize)
+                .unwrap_or(0)
+        };
         self.locals.push(Local {
             name: name.to_string(),
             depth: self.scope_depth,

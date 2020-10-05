@@ -99,9 +99,7 @@ impl ByteCode {
             | Self::GetGlobal8(_)
             | Self::SetGlobal1(_)
             | Self::SetGlobal8(_) => 2,
-            Self::JumpIfFalse(_)
-            | Self::Jump(_)
-            | Self::Loop(_) => 3,
+            Self::JumpIfFalse(_) | Self::Jump(_) | Self::Loop(_) => 3,
             Self::GetLocal1(_)
             | Self::GetLocal8(_)
             | Self::SetLocal1(_)
@@ -223,7 +221,7 @@ impl Chunk {
 
     pub fn get_line(&self, offset: usize) -> u32 {
         let index = self.line_idx + offset * 4;
-        u32::from_be_bytes(self.data[index..index+4].try_into().unwrap())
+        u32::from_be_bytes(self.data[index..index + 4].try_into().unwrap())
     }
 
     pub fn get_constant(&self, constant: &u8, length: usize) -> &[u8] {
@@ -237,7 +235,7 @@ impl Chunk {
 
         let mut offset = 0;
         while offset < self.code().len() {
-        //for offset in 0..self.code.len() {
+            //for offset in 0..self.code.len() {
             self.disassemble_instruction(offset);
             offset += self.get_code(offset).size() as usize;
         }
@@ -249,22 +247,19 @@ impl Chunk {
         if offset > 0 && self.get_line(offset) == self.get_line(offset - 1) {
             print!("   | ")
         } else {
-            print!(
-                "{line:>width$} ",
-                line = self.get_line(offset),
-                width = 4
-            );
+            print!("{line:>width$} ", line = self.get_line(offset), width = 4);
         }
 
         let code = self.get_code(offset);
 
         print!("{:?}", self.get_code(offset));
-        let slice = &self.code()[offset..offset+(code.size() as usize)];
+        let slice = &self.code()[offset..offset + (code.size() as usize)];
         println!(" ({:x?})", slice);
     }
 
     fn to_bytes(mut self) -> Vec<u8> {
-        self.data.extend_from_slice(&self.constant_idx.to_be_bytes());
+        self.data
+            .extend_from_slice(&self.constant_idx.to_be_bytes());
         self.data.extend_from_slice(&self.line_idx.to_be_bytes());
         self.data
     }
@@ -295,7 +290,9 @@ impl Chunk {
         ];
         let line_idx = usize::from_le_bytes(line_idx_bytes);
         Self {
-            data, constant_idx, line_idx
+            data,
+            constant_idx,
+            line_idx,
         }
     }
 }
@@ -318,227 +315,227 @@ impl ChunkBuilder {
             ByteCode::Return => {
                 self.code.push(0x0);
                 self.lines.push(line);
-            },
+            }
             ByteCode::PrintInt => {
                 self.code.push(0x1);
                 self.lines.push(line);
-            },
+            }
             ByteCode::PrintFloat => {
                 self.code.push(0x2);
                 self.lines.push(line);
-            },
+            }
             ByteCode::PrintBool => {
                 self.code.push(0x3);
                 self.lines.push(line);
-            },
+            }
             ByteCode::PrintObject => {
                 self.code.push(0x4);
                 self.lines.push(line);
-            },
+            }
             ByteCode::Constant1(arg) => {
                 self.code.push(0x5);
                 self.code.push(arg);
                 self.lines.push(line);
                 self.lines.push(line);
-            },
+            }
             ByteCode::Constant8(arg) => {
                 self.code.push(0x6);
                 self.code.push(arg);
                 self.lines.push(line);
                 self.lines.push(line);
-            },
+            }
             ByteCode::NegateInt => {
                 self.code.push(0x7);
                 self.lines.push(line);
-            },
+            }
             ByteCode::AddInt => {
                 self.code.push(0x8);
                 self.lines.push(line);
-            },
+            }
             ByteCode::SubInt => {
                 self.code.push(0x9);
                 self.lines.push(line);
-            },
+            }
             ByteCode::MulInt => {
                 self.code.push(0xa);
                 self.lines.push(line);
-            },
+            }
             ByteCode::DivInt => {
                 self.code.push(0xb);
                 self.lines.push(line);
-            },
+            }
             ByteCode::NegateFloat => {
                 self.code.push(0xc);
                 self.lines.push(line);
-            },
+            }
             ByteCode::AddFloat => {
                 self.code.push(0xd);
                 self.lines.push(line);
-            },
+            }
             ByteCode::SubFloat => {
                 self.code.push(0xe);
                 self.lines.push(line);
-            },
+            }
             ByteCode::MulFloat => {
                 self.code.push(0xf);
                 self.lines.push(line);
-            },
+            }
             ByteCode::DivFloat => {
                 self.code.push(0x10);
                 self.lines.push(line);
-            },
+            }
             ByteCode::Not => {
                 self.code.push(0x11);
                 self.lines.push(line);
-            },
+            }
             ByteCode::GreaterInt => {
                 self.code.push(0x12);
                 self.lines.push(line);
-            },
+            }
             ByteCode::LessInt => {
                 self.code.push(0x13);
                 self.lines.push(line);
-            },
+            }
             ByteCode::GreaterEqualInt => {
                 self.code.push(0x14);
                 self.lines.push(line);
-            },
+            }
             ByteCode::LessEqualInt => {
                 self.code.push(0x15);
                 self.lines.push(line);
-            },
+            }
             ByteCode::GreaterFloat => {
                 self.code.push(0x16);
                 self.lines.push(line);
-            },
+            }
             ByteCode::LessFloat => {
                 self.code.push(0x17);
                 self.lines.push(line);
-            },
+            }
             ByteCode::GreaterEqualFloat => {
                 self.code.push(0x18);
                 self.lines.push(line);
-            },
+            }
             ByteCode::LessEqualFloat => {
                 self.code.push(0x19);
                 self.lines.push(line);
-            },
+            }
             ByteCode::Equal8 => {
                 self.code.push(0x1a);
                 self.lines.push(line);
-            },
+            }
             ByteCode::NotEqual8 => {
                 self.code.push(0x1b);
                 self.lines.push(line);
-            },
+            }
             ByteCode::Equal1 => {
                 self.code.push(0x1c);
                 self.lines.push(line);
-            },
+            }
             ByteCode::NotEqual1 => {
                 self.code.push(0x1d);
                 self.lines.push(line);
-            },
+            }
             ByteCode::EqualHeap => {
                 self.code.push(0x1e);
                 self.lines.push(line);
-            },
+            }
             ByteCode::NotEqualHeap => {
                 self.code.push(0x1f);
                 self.lines.push(line);
-            },
+            }
             ByteCode::Concat => {
                 self.code.push(0x20);
                 self.lines.push(line);
-            },
+            }
             ByteCode::Pop8 => {
                 self.code.push(0x21);
                 self.lines.push(line);
-            },
+            }
             ByteCode::Pop1 => {
                 self.code.push(0x22);
                 self.lines.push(line);
-            },
+            }
             ByteCode::DefineGlobal1(arg) => {
                 self.code.push(0x23);
                 self.code.push(arg);
                 self.lines.push(line);
                 self.lines.push(line);
-            },
+            }
             ByteCode::DefineGlobal8(arg) => {
                 self.code.push(0x24);
                 self.code.push(arg);
                 self.lines.push(line);
                 self.lines.push(line);
-            },
+            }
             ByteCode::GetGlobal1(arg) => {
                 self.code.push(0x25);
                 self.code.push(arg);
                 self.lines.push(line);
                 self.lines.push(line);
-            },
+            }
             ByteCode::GetGlobal8(arg) => {
                 self.code.push(0x26);
                 self.code.push(arg);
                 self.lines.push(line);
                 self.lines.push(line);
-            },
+            }
             ByteCode::SetGlobal1(arg) => {
                 self.code.push(0x27);
                 self.code.push(arg);
                 self.lines.push(line);
                 self.lines.push(line);
-            },
+            }
             ByteCode::SetGlobal8(arg) => {
                 self.code.push(0x28);
                 self.code.push(arg);
                 self.lines.push(line);
                 self.lines.push(line);
-            },
+            }
             ByteCode::GetLocal1(arg) => {
                 self.code.push(0x29);
                 self.code.extend_from_slice(&arg.to_be_bytes());
                 self.lines.extend_from_slice(&[line; 9]);
-            },
+            }
             ByteCode::GetLocal8(arg) => {
                 self.code.push(0x2a);
                 self.code.extend_from_slice(&arg.to_be_bytes());
                 self.lines.extend_from_slice(&[line; 9]);
-            },
+            }
             ByteCode::SetLocal1(arg) => {
                 self.code.push(0x2b);
                 self.code.extend_from_slice(&arg.to_be_bytes());
                 self.lines.extend_from_slice(&[line; 9]);
-            },
+            }
             ByteCode::SetLocal8(arg) => {
                 self.code.push(0x2c);
                 self.code.extend_from_slice(&arg.to_be_bytes());
                 self.lines.extend_from_slice(&[line; 9]);
-            },
+            }
             ByteCode::JumpIfFalse(arg) => {
                 self.code.push(0x2d);
                 self.code.extend_from_slice(&arg.to_be_bytes());
                 self.lines.extend_from_slice(&[line; 3]);
-            },
+            }
             ByteCode::Jump(arg) => {
                 self.code.push(0x2e);
                 self.code.extend_from_slice(&arg.to_be_bytes());
                 self.lines.extend_from_slice(&[line; 3]);
-            },
+            }
             ByteCode::Loop(arg) => {
                 self.code.push(0x2f);
                 self.code.extend_from_slice(&arg.to_be_bytes());
                 self.lines.extend_from_slice(&[line; 3]);
-            },
+            }
             ByteCode::Call(arg) => {
                 self.code.push(0x30);
                 self.code.extend_from_slice(&arg.to_be_bytes());
                 self.lines.extend_from_slice(&[line; 9]);
-            },
+            }
             ByteCode::NoOp => {
                 self.code.push(0x31);
                 self.lines.push(line);
-            },
+            }
         }
     }
 
@@ -553,5 +550,4 @@ impl ChunkBuilder {
         self.code[index - 1] = offset_bytes[0];
         self.code[index] = offset_bytes[1];
     }
-
 }

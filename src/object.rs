@@ -65,4 +65,3 @@ impl fmt::Display for FunctionObj {
         write!(f, "function({})", self.arity)
     }
 }
-

@@ -104,8 +104,16 @@ impl<'a> Parser<'a> {
             TokenType::Bang => self.unary(),
             TokenType::Integer => self.integer(),
             TokenType::Float => self.float(),
-            TokenType::True => AstNode::new(self.id(), self.previous.line, AstNodeType::BoolLiteral(true)),
-            TokenType::False => AstNode::new(self.id(), self.previous.line, AstNodeType::BoolLiteral(false)),
+            TokenType::True => AstNode::new(
+                self.id(),
+                self.previous.line,
+                AstNodeType::BoolLiteral(true),
+            ),
+            TokenType::False => AstNode::new(
+                self.id(),
+                self.previous.line,
+                AstNodeType::BoolLiteral(false),
+            ),
             TokenType::Str => self.string(),
             TokenType::Identifier => self.variable(),
             _ => {
@@ -208,7 +216,8 @@ impl<'a> Parser<'a> {
         );
         let expression = self.expression();
         self.consume(TokenType::SemiColon, "Expect ';' after let statement.");
-        AstNode::new(self.id(),
+        AstNode::new(
+            self.id(),
             line,
             //AstNodeType::LetStatement(var_name, Box::new(variable), Box::new(expression)),
             AstNodeType::DeclareStatement(Box::new(variable), Box::new(expression)),
@@ -216,7 +225,11 @@ impl<'a> Parser<'a> {
     }
 
     fn variable_declaration(&mut self) -> AstNode {
-        AstNode::new(self.id(),self.previous.line, AstNodeType::Variable(self.previous.source.to_string()))
+        AstNode::new(
+            self.id(),
+            self.previous.line,
+            AstNodeType::Variable(self.previous.source.to_string()),
+        )
     }
 
     fn fun_declaration(&mut self) -> AstNode {
@@ -225,15 +238,25 @@ impl<'a> Parser<'a> {
         let line = self.previous.line;
         let func = self.function();
 
-        AstNode::new(self.id(),line, AstNodeType::DeclareStatement(Box::new(name), Box::new(func)))
+        AstNode::new(
+            self.id(),
+            line,
+            AstNodeType::DeclareStatement(Box::new(name), Box::new(func)),
+        )
     }
 
     fn function(&mut self) -> AstNode {
-        self.consume(TokenType::LeftParen, "Expect '(' before function parameters.");
+        self.consume(
+            TokenType::LeftParen,
+            "Expect '(' before function parameters.",
+        );
         let line = self.previous.line;
         // TODO args
         let params = Vec::new();
-        self.consume(TokenType::RightParen, "Expect ')' after function parameters.");
+        self.consume(
+            TokenType::RightParen,
+            "Expect ')' after function parameters.",
+        );
 
         self.consume(TokenType::Arrow, "Expect '->' after parameters.");
         self.consume(TokenType::Identifier, "Expect return type after ->");
@@ -242,11 +265,15 @@ impl<'a> Parser<'a> {
         self.consume(TokenType::LeftBrace, "Expect '{' after return type");
         let body = self.block();
 
-        AstNode::new(self.id(),line, AstNodeType::FunctionDef{
-            return_type: return_type.to_string(),
-            params,
-            body: Box::new(body),
-        })
+        AstNode::new(
+            self.id(),
+            line,
+            AstNodeType::FunctionDef {
+                return_type: return_type.to_string(),
+                params,
+                body: Box::new(body),
+            },
+        )
     }
 
     fn statement(&mut self) -> AstNode {
@@ -271,7 +298,7 @@ impl<'a> Parser<'a> {
         }
 
         self.consume(TokenType::RightBrace, "Expect '}' after block.");
-        AstNode::new(self.id(),line, AstNodeType::Block(statements))
+        AstNode::new(self.id(), line, AstNodeType::Block(statements))
     }
 
     fn if_statement(&mut self) -> AstNode {
@@ -287,9 +314,14 @@ impl<'a> Parser<'a> {
                 self.block()
             }
         } else {
-            AstNode::new(self.id(),self.previous.line, AstNodeType::Block(Vec::new()))
+            AstNode::new(
+                self.id(),
+                self.previous.line,
+                AstNodeType::Block(Vec::new()),
+            )
         };
-        AstNode::new(self.id(),
+        AstNode::new(
+            self.id(),
             line,
             AstNodeType::IfStatement(
                 Box::new(condition),
@@ -304,7 +336,8 @@ impl<'a> Parser<'a> {
         let line = self.previous.line;
         self.consume(TokenType::LeftBrace, "Expect '{' after if condition.");
         let loop_block = self.block();
-        AstNode::new(self.id(),
+        AstNode::new(
+            self.id(),
             line,
             AstNodeType::WhileStatement(Box::new(condition), Box::new(loop_block)),
         )
@@ -314,7 +347,7 @@ impl<'a> Parser<'a> {
         let line = self.previous.line;
         let e = self.expression();
         self.consume(TokenType::SemiColon, "Expect ';' after print statement.");
-        AstNode::new(self.id(),line, AstNodeType::PrintStatement(Box::new(e)))
+        AstNode::new(self.id(), line, AstNodeType::PrintStatement(Box::new(e)))
     }
 
     fn expression_statement(&mut self) -> AstNode {
@@ -324,7 +357,11 @@ impl<'a> Parser<'a> {
             TokenType::SemiColon,
             "Expect ';' after expression statement.",
         );
-        AstNode::new(self.id(),line, AstNodeType::ExpressionStatement(Box::new(e)))
+        AstNode::new(
+            self.id(),
+            line,
+            AstNodeType::ExpressionStatement(Box::new(e)),
+        )
     }
 
     fn expression(&mut self) -> AstNode {
@@ -332,28 +369,37 @@ impl<'a> Parser<'a> {
     }
 
     fn integer(&mut self) -> AstNode {
-        AstNode::new(self.id(),
+        AstNode::new(
+            self.id(),
             self.previous.line,
             AstNodeType::IntLiteral(self.previous.source.parse::<i64>().unwrap()),
         )
     }
 
     fn float(&mut self) -> AstNode {
-        AstNode::new(self.id(),
+        AstNode::new(
+            self.id(),
             self.previous.line,
             AstNodeType::FloatLiteral(self.previous.source.parse::<f64>().unwrap()),
         )
     }
 
     fn string(&mut self) -> AstNode {
-        AstNode::new(self.id(),
+        AstNode::new(
+            self.id(),
             self.previous.line,
-            AstNodeType::StrLiteral(self.previous.source[1..self.previous.source.len() - 1].to_string()),
+            AstNodeType::StrLiteral(
+                self.previous.source[1..self.previous.source.len() - 1].to_string(),
+            ),
         )
     }
 
     fn variable(&mut self) -> AstNode {
-        AstNode::new(self.id(),self.previous.line, AstNodeType::Variable(self.previous.source.to_string()))
+        AstNode::new(
+            self.id(),
+            self.previous.line,
+            AstNodeType::Variable(self.previous.source.to_string()),
+        )
     }
 
     fn grouping(&mut self) -> AstNode {
@@ -370,7 +416,11 @@ impl<'a> Parser<'a> {
         };
         let line = self.previous.line;
         let operand = self.parse_precedence(prefix_precedence(&self.previous.tok_type));
-        AstNode::new(self.id(),line, AstNodeType::Unary(operator, Box::new(operand)))
+        AstNode::new(
+            self.id(),
+            line,
+            AstNodeType::Unary(operator, Box::new(operand)),
+        )
     }
 
     fn binary(&mut self, lhs: AstNode) -> AstNode {
@@ -393,7 +443,8 @@ impl<'a> Parser<'a> {
         let line = self.previous.line;
         let precedence = infix_right_precedence(&self.previous.tok_type);
         let rhs = self.parse_precedence(precedence);
-        AstNode::new(self.id(),
+        AstNode::new(
+            self.id(),
             line,
             AstNodeType::Binary(operator, Box::new(lhs), Box::new(rhs)),
         )
@@ -402,7 +453,14 @@ impl<'a> Parser<'a> {
     fn call(&mut self, target: AstNode) -> AstNode {
         let line = self.previous.line;
         let args = self.argument_list();
-        AstNode::new(self.id(),line, AstNodeType::Call{target: Box::new(target), args})
+        AstNode::new(
+            self.id(),
+            line,
+            AstNodeType::Call {
+                target: Box::new(target),
+                args,
+            },
+        )
     }
 
     fn argument_list(&mut self) -> Vec<AstNode> {

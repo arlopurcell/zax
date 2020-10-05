@@ -9,7 +9,7 @@ pub struct Heap {
     interned_strings: FnvHashMap<String, usize>,
 }
 
-impl <'a> Heap {
+impl<'a> Heap {
     pub fn new() -> Self {
         Self {
             objects: FnvHashMap::default(),

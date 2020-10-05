@@ -2,8 +2,8 @@ use crate::chunk::ByteCode;
 use crate::code_gen::Generator;
 use crate::common::{InterpretError, InterpretResult};
 use crate::heap::Heap;
+use crate::object::{ObjType, Object};
 use crate::type_check::{find_type, DataType, Scope, TCNodeType, TypeConstraint};
-use crate::object::{Object, ObjType};
 
 #[derive(Debug, Clone)]
 pub struct AstNode {
@@ -31,11 +31,18 @@ pub enum AstNodeType {
 
     Variable(String),
 
-    Call{target: Box<AstNode>, args: Vec<AstNode>},
+    Call {
+        target: Box<AstNode>,
+        args: Vec<AstNode>,
+    },
 
     WhileStatement(Box<AstNode>, Box<AstNode>),
     DeclareStatement(Box<AstNode>, Box<AstNode>),
-    FunctionDef{return_type: String, params: Vec<AstNode>, body: Box<AstNode>},
+    FunctionDef {
+        return_type: String,
+        params: Vec<AstNode>,
+        body: Box<AstNode>,
+    },
     PrintStatement(Box<AstNode>),
     ExpressionStatement(Box<AstNode>),
     Block(Vec<AstNode>),
@@ -150,7 +157,11 @@ impl AstNode {
                     statement.generate(generator, heap);
                 }
             }
-            AstNodeType::FunctionDef{return_type: _, params: _, body} => {
+            AstNodeType::FunctionDef {
+                return_type: _,
+                params: _,
+                body,
+            } => {
                 // TODO pass in function name for debugging
                 let mut child_generator = Generator::new();
 
@@ -175,15 +186,22 @@ impl AstNode {
                 //generator.emit_constant_8(, self.line);
                 let heap_index = heap.allocate(Object::new(ObjType::Function(Box::new(func_obj))));
                 generator.emit_constant_8(&heap_index.to_be_bytes(), self.line)
-            },
-            AstNodeType::Call{target, args} => {
+            }
+            AstNodeType::Call { target, args } => {
                 target.generate(generator, heap);
-                let size = args.iter().map(|a| a.data_type.expect("function argument must have type").size() as usize).sum();
+                let size = args
+                    .iter()
+                    .map(|a| {
+                        a.data_type
+                            .expect("function argument must have type")
+                            .size() as usize
+                    })
+                    .sum();
                 for arg in args {
                     arg.generate(generator, heap);
                 }
                 generator.emit_byte(ByteCode::Call(size), self.line);
-            },
+            }
             AstNodeType::PrintStatement(e) => {
                 let code = match e.data_type {
                     Some(DataType::Int) => ByteCode::PrintInt,
@@ -214,16 +232,22 @@ impl AstNode {
                     if generator.scope_depth == 0 {
                         let constant = identifier_constant(&name, heap, generator);
                         let code = match rhs.data_type {
-                            Some(DataType::Int) | Some(DataType::Float) | Some(DataType::Str) | Some(DataType::Function)=> {
-                                ByteCode::DefineGlobal8(constant)
-                            }
+                            Some(DataType::Int)
+                            | Some(DataType::Float)
+                            | Some(DataType::Str)
+                            | Some(DataType::Function) => ByteCode::DefineGlobal8(constant),
                             Some(DataType::Bool) => ByteCode::DefineGlobal1(constant),
-                            Some(DataType::Nil) | None => panic!("No data type for global variable")
+                            Some(DataType::Nil) | None => {
+                                panic!("No data type for global variable")
+                            }
                         };
                         rhs.generate(generator, heap);
                         generator.emit_byte(code, self.line)
                     } else {
-                        generator.add_local(&name, lhs.data_type.expect("Variable must have data type").size());
+                        generator.add_local(
+                            &name,
+                            lhs.data_type.expect("Variable must have data type").size(),
+                        );
 
                         rhs.generate(generator, heap);
                         // simply allow result of rhs to remain on the stack
@@ -266,26 +290,29 @@ impl AstNode {
                 generator.patch_jump(exit_jump);
                 generator.emit_byte(ByteCode::Pop1, self.line); // pop condition
             }
-            AstNodeType::Variable(name) => if !lvalue {
-                if let Some(local_index) = generator.resolve_local(&name) {
-                    let code = match &self.data_type {
-                        Some(DataType::Int) | Some(DataType::Float) | Some(DataType::Str) => {
-                            ByteCode::GetLocal8(local_index)
-                        }
-                        Some(DataType::Bool) => ByteCode::GetLocal1(local_index),
-                        _ => panic!("Unexpected data type for variable"),
-                    };
-                    generator.emit_byte(code, self.line)
-                } else {
-                    let constant = identifier_constant(&name, heap, generator);
-                    let code = match &self.data_type {
-                        Some(DataType::Int) | Some(DataType::Float) | Some(DataType::Str) | Some(DataType::Function) => {
-                            ByteCode::GetGlobal8(constant)
-                        }
-                        Some(DataType::Bool) => ByteCode::GetGlobal1(constant),
-                        Some(DataType::Nil) | None => panic!("None data type for variable"),
-                    };
-                    generator.emit_byte(code, self.line)
+            AstNodeType::Variable(name) => {
+                if !lvalue {
+                    if let Some(local_index) = generator.resolve_local(&name) {
+                        let code = match &self.data_type {
+                            Some(DataType::Int) | Some(DataType::Float) | Some(DataType::Str) => {
+                                ByteCode::GetLocal8(local_index)
+                            }
+                            Some(DataType::Bool) => ByteCode::GetLocal1(local_index),
+                            _ => panic!("Unexpected data type for variable"),
+                        };
+                        generator.emit_byte(code, self.line)
+                    } else {
+                        let constant = identifier_constant(&name, heap, generator);
+                        let code = match &self.data_type {
+                            Some(DataType::Int)
+                            | Some(DataType::Float)
+                            | Some(DataType::Str)
+                            | Some(DataType::Function) => ByteCode::GetGlobal8(constant),
+                            Some(DataType::Bool) => ByteCode::GetGlobal1(constant),
+                            Some(DataType::Nil) | None => panic!("None data type for variable"),
+                        };
+                        generator.emit_byte(code, self.line)
+                    }
                 }
             }
             AstNodeType::IntLiteral(value) => {
@@ -538,14 +565,13 @@ impl AstNode {
                     .collect();
                 statements?;
             }
-            AstNodeType::PrintStatement(e)
-            | AstNodeType::ExpressionStatement(e) => {
+            AstNodeType::PrintStatement(e) | AstNodeType::ExpressionStatement(e) => {
                 e.resolve_types(substitutions, scope)?;
             }
             AstNodeType::DeclareStatement(lhs, rhs) => {
                 lhs.resolve_types(substitutions, scope)?;
                 rhs.resolve_types(substitutions, scope)?;
-            },
+            }
             AstNodeType::IfStatement(condition, then_block, else_block) => {
                 condition.resolve_types(substitutions, scope)?;
                 then_block.resolve_types(substitutions, scope)?;
@@ -555,7 +581,7 @@ impl AstNode {
                 condition.resolve_types(substitutions, scope)?;
                 loop_block.resolve_types(substitutions, scope)?;
             }
-            AstNodeType::Call{target, args} => {
+            AstNodeType::Call { target, args } => {
                 target.resolve_types(substitutions, scope)?;
                 let args: Result<Vec<_>, _> = args
                     .into_iter()
@@ -563,7 +589,11 @@ impl AstNode {
                     .collect();
                 args?;
             }
-            AstNodeType::FunctionDef{return_type, params, body} => {
+            AstNodeType::FunctionDef {
+                return_type,
+                params,
+                body,
+            } => {
                 let params: Result<Vec<_>, _> = params
                     .into_iter()
                     .map(|param| param.resolve_types(substitutions, scope))

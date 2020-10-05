@@ -1,0 +1,6 @@
+fun areWeHavingItYet() -> Void {
+    print "yes we are!";
+}
+
+areWeHavingItYet();
+
