@@ -50,9 +50,9 @@ impl fmt::Display for ObjType {
 
 impl FunctionObj {
     // TODO fix this
-    pub fn new(chunk: Chunk) -> Self {
+    pub fn new(chunk: Chunk, arity: u8) -> Self {
         Self {
-            arity: 0,
+            arity,
             chunk,
             //name: "".to_string(),
         }

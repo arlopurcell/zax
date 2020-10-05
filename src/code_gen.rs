@@ -58,6 +58,7 @@ impl Generator {
 
     pub fn begin_scope(&mut self) -> () {
         self.scope_depth += 1;
+        eprintln!("Beginning scope depth: {}", self.scope_depth);
     }
 
     pub fn end_scope(&mut self) -> usize {
@@ -66,13 +67,13 @@ impl Generator {
         let mut pop_n = 0;
         let mut truncate_size = 0;
         for (index, local) in self.locals.iter().enumerate().rev() {
-            if local.depth <= self.scope_depth {
+            if local.depth > self.scope_depth {
                 truncate_size = index + 1;
                 pop_n = local.index + local.size as usize;
             }
         }
 
-        self.locals.truncate(truncate_size);
+        self.locals.truncate(self.locals.len() - truncate_size);
         pop_n
         //self.locals.retain(|l| l.depth <= scope_depth);
     }
@@ -146,8 +147,8 @@ impl Generator {
         self.emit_byte(ByteCode::Loop(offset), line);
     }
 
-    pub fn end(mut self) -> FunctionObj {
+    pub fn end(mut self, arity: u8) -> FunctionObj {
         &mut self.emit_byte(ByteCode::Return, 0);
-        FunctionObj::new(Chunk::new(self.chunk_builder))
+        FunctionObj::new(Chunk::new(self.chunk_builder), arity)
     }
 }

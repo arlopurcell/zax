@@ -157,37 +157,46 @@ impl AstNode {
                     statement.generate(generator, heap);
                 }
             }
-            AstNodeType::FunctionDef {
-                return_type: _,
-                params: _,
-                body,
-            } => {
+            AstNodeType::FunctionDef{return_type: _, params, body} => {
                 // TODO pass in function name for debugging
                 let mut child_generator = Generator::new();
+                child_generator.begin_scope();
 
-                generator.begin_scope();
-                // TODO args
-
-                if let AstNodeType::Block(statements) = body.node_type {
-                    for s in statements {
-                        s.generate(&mut child_generator, heap);
+                let arity = params.len() as u8;
+                for param in params.into_iter() {
+                    match param.node_type {
+                        AstNodeType::Variable(name) => {
+                            child_generator.add_local(
+                                &name,
+                                param.data_type.expect("Parameter must have data type").size(),
+                            );
+                            //param.generate_with_lvalue(&mut child_generator, heap, true);
+                        }
+                        _ => panic!("Invalid node type  for param"),
                     }
-                } else {
-                    panic!("Function body must be a block");
                 }
-                let block_bytes = generator.end_scope();
+
+                match body.node_type {
+                    AstNodeType::Block(statements) => {
+                        for s in statements {
+                            s.generate(&mut child_generator, heap);
+                        }
+                    }
+                    _ => panic!("Invalid node type for function body"),
+                }
+                let block_bytes = child_generator.end_scope();
                 // TODO implement pop n
                 for _ in 0..block_bytes {
-                    generator.emit_byte(ByteCode::Pop1, self.line)
+                    child_generator.emit_byte(ByteCode::Pop1, self.line)
                 }
 
                 // TODO function name
-                let func_obj = child_generator.end();
+                let func_obj = child_generator.end(arity);
                 //generator.emit_constant_8(, self.line);
                 let heap_index = heap.allocate(Object::new(ObjType::Function(Box::new(func_obj))));
                 generator.emit_constant_8(&heap_index.to_be_bytes(), self.line)
-            }
-            AstNodeType::Call { target, args } => {
+            },
+            AstNodeType::Call{target, args} => {
                 target.generate(generator, heap);
                 let size = args
                     .iter()

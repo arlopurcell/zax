@@ -29,7 +29,7 @@ pub fn compile(
 
                 let mut generator = Generator::new();
                 ast.generate(&mut generator, heap);
-                let func_obj = generator.end();
+                let func_obj = generator.end(0);
                 Ok(func_obj)
             }
             Err(e) => {

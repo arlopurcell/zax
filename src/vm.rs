@@ -213,7 +213,10 @@ impl<'a> VM<'a> {
             #[cfg(feature = "debug-logging")]
             {
                 print!(" stack: ");
-                for slot in stack.0.iter() {
+                for (index, slot) in stack.0.iter().enumerate() {
+                    if index == current_frame.stack_index {
+                        print!(" | ");
+                    }
                     print!("[ {} ]", slot);
                 }
                 println!();
@@ -509,7 +512,12 @@ impl<'a> VM<'a> {
                     let heap_index = stack.skip_peek_bytes_8(args_bytes);
                     let heap_index = usize::from_be_bytes(heap_index.try_into().unwrap());
                     let frame = CallFrame::new(heap_index, args_bytes);
+
+                    #[cfg(feature = "debug-logging")]
+                    frame.chunk(&self.heap).disassemble("function"); // TODO get/use function name
+
                     self.frames.push(frame);
+
                 }
                 ByteCode::NoOp => (),
             }

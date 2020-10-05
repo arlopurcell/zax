@@ -400,6 +400,12 @@ fn generate_constraints<'a>(
             */
             for param in params.iter() {
                 constraints.append(&mut generate_constraints(param, scope)?);
+                match &param.node_type {
+                    AstNodeType::Variable(name) => {
+                        scope.insert(&name, TCSide::Expr(param.id));
+                    }
+                    _ => panic!("Invalid node type for func param"),
+                }
             }
             constraints.append(&mut generate_constraints(body, scope)?);
             Ok(constraints)

@@ -207,7 +207,6 @@ impl<'a> Parser<'a> {
     }
 
     fn let_declaration(&mut self) -> AstNode {
-        self.consume(TokenType::Identifier, "Expect variable name");
         let variable = self.variable_declaration();
         let line = self.previous.line;
         self.consume(
@@ -225,6 +224,7 @@ impl<'a> Parser<'a> {
     }
 
     fn variable_declaration(&mut self) -> AstNode {
+        self.consume(TokenType::Identifier, "Expect variable name");
         AstNode::new(
             self.id(),
             self.previous.line,
@@ -233,7 +233,6 @@ impl<'a> Parser<'a> {
     }
 
     fn fun_declaration(&mut self) -> AstNode {
-        self.consume(TokenType::Identifier, "Expect variable name");
         let name = self.variable_declaration();
         let line = self.previous.line;
         let func = self.function();
@@ -251,12 +250,7 @@ impl<'a> Parser<'a> {
             "Expect '(' before function parameters.",
         );
         let line = self.previous.line;
-        // TODO args
-        let params = Vec::new();
-        self.consume(
-            TokenType::RightParen,
-            "Expect ')' after function parameters.",
-        );
+        let params = self.comma_separated(InnerParser::Variable, TokenType::RightParen, "after parameters.");
 
         self.consume(TokenType::Arrow, "Expect '->' after parameters.");
         self.consume(TokenType::Identifier, "Expect return type after ->");
@@ -452,7 +446,7 @@ impl<'a> Parser<'a> {
 
     fn call(&mut self, target: AstNode) -> AstNode {
         let line = self.previous.line;
-        let args = self.argument_list();
+        let args = self.comma_separated(InnerParser::Expression, TokenType::RightParen, "after arguments.");
         AstNode::new(
             self.id(),
             line,
@@ -463,16 +457,20 @@ impl<'a> Parser<'a> {
         )
     }
 
-    fn argument_list(&mut self) -> Vec<AstNode> {
+    fn comma_separated(&mut self, inner: InnerParser, end_tok: TokenType, context: &'static str) -> Vec<AstNode> {
+        eprintln!("starting comma separated list");
         let mut args = Vec::new();
         // This loop looks weird, but it should parse arg lists with an optional trailing comma
         loop {
-            if self.match_tok(TokenType::RightParen) {
+            if self.match_tok(end_tok) {
                 break;
             }
-            args.push(self.expression());
+            args.push(match inner {
+                InnerParser::Expression => self.expression(),
+                InnerParser::Variable => self.variable_declaration(),
+            });
             if !self.match_tok(TokenType::Comma) {
-                self.consume(TokenType::RightParen, "Expect ')' after arguments");
+                self.consume(end_tok, &format!("Expect {:?} {}", end_tok, context));
                 break;
             }
         }
@@ -483,6 +481,11 @@ impl<'a> Parser<'a> {
 
         args
     }
+}
+
+enum InnerParser{
+    Expression,
+    Variable,
 }
 
 fn prefix_precedence(tok_type: &TokenType) -> Precedence {

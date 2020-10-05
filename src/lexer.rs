@@ -21,7 +21,7 @@ impl<'a> Token<'a> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum TokenType {
     LeftParen,
     RightParen,
