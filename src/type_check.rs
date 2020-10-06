@@ -207,7 +207,8 @@ fn side_to_data_type(
             parameters,
         }) => {
             if possible_types.len() != 1 {
-                Err(error("Multiple possible types"))
+                //eprintln!("{:#?}", substitutions);
+                Err(error(&format!("Multiple possible types: {:?}", possible_types)))
             } else {
                 Ok(match possible_types[0] {
                     TCNodeType::Int => DataType::Int,
@@ -445,6 +446,7 @@ fn generate_constraints<'a>(
             match &lhs.node_type {
                 AstNodeType::Variable(name, type_annotation) => {
                     scope.insert(&name, TCSide::Expr(rhs.id));
+                    //eprintln!("INSERTING constraint for {}", name);
                     if let Some(type_annotation) = type_annotation {
                         let var_type = TCNodeType::try_from(&type_annotation)?;
                         constraints.push(TypeConstraint::new(
@@ -493,6 +495,8 @@ fn generate_constraints<'a>(
             let mut constraints = if let Some(tc_side) = scope.get(name) {
                 vec![TypeConstraint::new(TCSide::Expr(node.id), tc_side)]
             } else {
+                // TODO for recursive stuff, it's not here yet. but how do i get this to happen
+                // later?
                 Vec::new()
             };
 
@@ -510,15 +514,16 @@ fn generate_constraints<'a>(
             params,
             body,
         } => {
-            let mut func_scope = Scope::new(None);
-            let func_scope = &mut func_scope;
+            //let mut func_scope = Scope::new(None);
+            //let func_scope = &mut func_scope;
 
             let mut constraints = Vec::new();
             for param in params.iter() {
-                constraints.append(&mut generate_constraints(param, func_scope)?);
+                constraints.append(&mut generate_constraints(param, scope)?);
                 match &param.node_type {
                     AstNodeType::Variable(name, type_annotation) => {
-                        func_scope.insert(&name, TCSide::Expr(param.id));
+                        //eprintln!("INSERTING constraint for {}", name);
+                        scope.insert(&name, TCSide::Expr(param.id));
                         if let Some(type_annotation) = type_annotation {
                             let param_type = TCNodeType::try_from(&type_annotation)?;
                             constraints.push(TypeConstraint::new(
@@ -543,7 +548,8 @@ fn generate_constraints<'a>(
                 },
             ));
 
-            constraints.append(&mut generate_constraints(body, func_scope)?);
+            // TODO make sure the name of *this* function gets in here for recursion
+            constraints.append(&mut generate_constraints(body, scope)?);
             Ok(constraints)
         }
         AstNodeType::Call { target, args } => {
