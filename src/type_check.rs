@@ -291,6 +291,13 @@ fn check_node_has_type(node: &AstNode) -> Result<(), TypeError> {
     }
 }
 
+pub fn final_type_check(node: &AstNode) -> InterpretResult {
+    check_operator_constraints(node).map_err(|e| {
+        error(&format!("{}", e));
+        InterpretError::Compile
+    })
+}
+
 fn check_operator_constraints(node: &AstNode) -> Result<(), TypeError> {
     match &node.node_type {
         AstNodeType::IntLiteral(_) => Ok(()),

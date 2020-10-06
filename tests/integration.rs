@@ -45,3 +45,4 @@ zax_test!(func_call_type_param);
 zax_test!(func_call_return_type);
 zax_test!(top_level_return, 1);
 zax_test!(fib);
+zax_test!(bad_add, 1);

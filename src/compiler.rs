@@ -4,7 +4,7 @@ use crate::heap::Heap;
 use crate::lexer::Lexer;
 use crate::object::FunctionObj;
 use crate::parser::Parser;
-use crate::type_check::generate_substitutions;
+use crate::type_check::{generate_substitutions, final_type_check};
 
 pub fn compile(
     source: &str,
@@ -22,6 +22,7 @@ pub fn compile(
         match substitutions {
             Ok(substitutions) => {
                 ast.resolve_types(&substitutions)?;
+                final_type_check(&ast)?;
 
                 #[cfg(feature = "debug-logging")]
                 eprintln!("{:#?}", ast);
