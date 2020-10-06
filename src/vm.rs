@@ -5,7 +5,7 @@ use crate::chunk::{ByteCode, Chunk};
 use crate::common::{InterpretError, InterpretResult};
 use crate::compiler::compile;
 use crate::heap::Heap;
-use crate::object::{FunctionObj, ObjType, Object};
+use crate::object::{FunctionObj, NativeFunctionObj, ObjType, Object};
 
 pub struct VM {
     stack: Stack,
@@ -149,12 +149,18 @@ impl Stack {
 
 impl VM {
     pub fn new() -> Self {
-        Self {
-            stack: Stack(vec![0,0,0,0,0,0,0,0]), // 8 bytes to represent the root "function"
+        let mut vm = Self {
+            stack: Stack(vec![0, 0, 0, 0, 0, 0, 0, 0]), // 8 bytes to represent the root "function"
             heap: Heap::new(),
             globals: HashMap::new(),
             frames: Vec::with_capacity(u8::MAX as usize),
+        };
+
+        for f in NativeFunctionObj::all() {
+            vm.define_native(f);
         }
+
+        vm
     }
 
     pub fn interpret(&mut self, source: &str) -> InterpretResult {
@@ -183,6 +189,14 @@ impl VM {
             eprintln!("[line {:>4}] in script", frame.get_last_line(&self.heap));
             // TODO add function name to trace
         }
+    }
+
+    fn define_native(&mut self, func_obj: NativeFunctionObj) -> () {
+        let name = func_obj.name().to_string();
+        let heap_index = self
+            .heap
+            .allocate(Object::new(ObjType::NativeFunction(Box::new(func_obj))));
+        self.globals.insert(name, heap_index.to_be_bytes().to_vec());
     }
 
     fn pop_heap(&mut self) -> &Object {
@@ -516,13 +530,20 @@ impl VM {
                 ByteCode::Call(args_bytes) => {
                     let heap_index = stack.skip_peek_bytes_8(args_bytes);
                     let heap_index = usize::from_be_bytes(heap_index.try_into().unwrap());
-                    let frame = CallFrame::new(heap_index, self.stack.len() - (args_bytes + 8)); // To account for function object
 
-                    #[cfg(feature = "debug-logging")]
-                    frame.chunk(&self.heap).disassemble("function"); // TODO get/use function name
+                    let object = self.heap.get(heap_index);
+                    if let ObjType::NativeFunction(func_obj) = &object.value {
+                        let args_bytes = func_obj.arg_bytes();
+                        let args = self.stack.pop_bulk(args_bytes);
+                        self.stack.push(&func_obj.exec(&args));
+                    } else {
+                        let frame = CallFrame::new(heap_index, self.stack.len() - (args_bytes + 8)); // To account for function object
 
-                    self.frames.push(frame);
+                        #[cfg(feature = "debug-logging")]
+                        frame.chunk(&self.heap).disassemble("function"); // TODO get/use function name
 
+                        self.frames.push(frame);
+                    }
                 }
                 ByteCode::NoOp => (),
             }

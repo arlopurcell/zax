@@ -312,9 +312,12 @@ impl<'a> Lexer<'a> {
     }
 
     fn check_keyword(&self, start: usize, rest: &'static str, tok_type: TokenType) -> TokenType {
-        if self.current - self.start == start + rest.len() && std::str::from_utf8(&self.source[self.start + start..self.start + start + rest.len()])
+        if self.current - self.start == start + rest.len()
+            && std::str::from_utf8(
+                &self.source[self.start + start..self.start + start + rest.len()],
+            )
             .unwrap()
-            == rest
+                == rest
         {
             tok_type
         } else {

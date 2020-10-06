@@ -4,6 +4,7 @@ use std::fmt;
 
 use crate::ast::{AstNode, AstNodeType, Operator};
 use crate::common::{InterpretError, InterpretResult};
+use crate::object::NativeFunctionObj;
 
 #[derive(Debug)]
 pub struct TypeConstraint {
@@ -137,10 +138,32 @@ pub struct Scope<'a> {
 
 impl<'a> Scope<'a> {
     pub fn new(parent: Option<&'a Scope<'a>>) -> Self {
-        Self {
+        let mut s = Self {
             parent,
             variables: HashMap::new(),
+        };
+
+        // include native functions in global scope
+        if parent.is_none() {
+            for f in NativeFunctionObj::all() {
+                s.variables.insert(
+                    f.name().to_string(),
+                    match f {
+                        NativeFunctionObj::Clock => TCSide::Constraint {
+                            base_type: TCNodeType::Function,
+                            return_type: Some(Box::new(TCSide::Constraint {
+                                base_type: TCNodeType::Float,
+                                return_type: None,
+                                parameters: Vec::new(),
+                            })),
+                            parameters: Vec::new(),
+                        },
+                    },
+                );
+            }
         }
+
+        s
     }
 
     fn get(&self, name: &str) -> Option<TCSide> {
@@ -176,38 +199,39 @@ fn side_to_data_type(
             base_type,
             return_type,
             parameters,
-        }) => {
-            Ok(match base_type {
-                TCNodeType::Int => DataType::Int,
-                TCNodeType::Float => DataType::Float,
-                TCNodeType::Bool => DataType::Bool,
-                TCNodeType::Str => DataType::Str,
-                TCNodeType::Nil => DataType::Nil,
-                TCNodeType::Function => {
-                    let return_type = if let Some(return_type) = return_type {
-                        find_side_data_type(return_type, substitutions)
-                    } else {
-                        Err(error("Failed to find return type"))
-                    }?;
-                    let parameters: Result<Vec<_>, _> = parameters
-                        .iter()
-                        .map(|p| find_side_data_type(p, substitutions))
-                        .collect();
-                    DataType::Function {
-                        return_type: Box::new(return_type),
-                        parameters: parameters?,
-                    }
+        }) => Ok(match base_type {
+            TCNodeType::Int => DataType::Int,
+            TCNodeType::Float => DataType::Float,
+            TCNodeType::Bool => DataType::Bool,
+            TCNodeType::Str => DataType::Str,
+            TCNodeType::Nil => DataType::Nil,
+            TCNodeType::Function => {
+                let return_type = if let Some(return_type) = return_type {
+                    find_side_data_type(return_type, substitutions)
+                } else {
+                    Err(error("Failed to find return type"))
+                }?;
+                let parameters: Result<Vec<_>, _> = parameters
+                    .iter()
+                    .map(|p| find_side_data_type(p, substitutions))
+                    .collect();
+                DataType::Function {
+                    return_type: Box::new(return_type),
+                    parameters: parameters?,
                 }
-            })
-        }
+            }
+        }),
     }
 }
 
-fn find_side_data_type(target: &TCSide, substitutions: &[TypeConstraint]) -> Result<DataType, InterpretError> {
+fn find_side_data_type(
+    target: &TCSide,
+    substitutions: &[TypeConstraint],
+) -> Result<DataType, InterpretError> {
     side_to_data_type(
         find_type_helper(target, substitutions, &mut Vec::new()).as_ref(),
         substitutions,
-        )
+    )
 }
 
 fn error(message: &str) -> InterpretError {
@@ -226,13 +250,15 @@ fn find_type_helper<'a>(
             if !visited.contains(&target) {
                 visited.push(target);
                 maybe_result = match &sub {
-                    TypeConstraint{left: TCSide::Expr(sub_id), right} if sub_id == id => {
-                        find_type_helper(right, substitutions, visited)
-                    }
-                    TypeConstraint{left, right: TCSide::Expr(sub_id)} if sub_id == id => {
-                        find_type_helper(left, substitutions, visited)
-                    }
-                    _ => None
+                    TypeConstraint {
+                        left: TCSide::Expr(sub_id),
+                        right,
+                    } if sub_id == id => find_type_helper(right, substitutions, visited),
+                    TypeConstraint {
+                        left,
+                        right: TCSide::Expr(sub_id),
+                    } if sub_id == id => find_type_helper(left, substitutions, visited),
+                    _ => None,
                 };
                 visited.retain(|item| *item != target);
             }
@@ -273,16 +299,6 @@ fn check_types(node: &AstNode, types: &[&DataType]) -> Result<(), TypeError> {
     }
 }
 
-fn check_node_types(a: &AstNode, b: &AstNode) -> Result<(), TypeError> {
-    check_node_has_type(a)?;
-    check_node_has_type(b)?;
-    if a.data_type != b.data_type {
-        Err(TypeError::Mismatched)
-    } else {
-        Ok(())
-    }
-}
-
 fn check_node_has_type(node: &AstNode) -> Result<(), TypeError> {
     if node.data_type.is_some() {
         Ok(())
@@ -314,7 +330,7 @@ fn check_operator_constraints(node: &AstNode) -> Result<(), TypeError> {
                 Operator::Not => {
                     check_type(node, &DataType::Bool)?;
                     check_type(operand, &DataType::Bool)
-                },
+                }
                 _ => panic!("Invalid unary operator"),
             }
         }
@@ -337,10 +353,11 @@ fn check_operator_constraints(node: &AstNode) -> Result<(), TypeError> {
                     check_numeric(b)?;
                     check_numeric(node)
                 }
-                Operator::Equal | Operator::NotEqual => {
-                    check_type(node, &DataType::Bool)
-                }
-                Operator::Greater | Operator::GreaterEqual | Operator::Less | Operator::LessEqual => {
+                Operator::Equal | Operator::NotEqual => check_type(node, &DataType::Bool),
+                Operator::Greater
+                | Operator::GreaterEqual
+                | Operator::Less
+                | Operator::LessEqual => {
                     check_numeric(a)?;
                     check_numeric(b)?;
                     check_type(node, &DataType::Bool)
@@ -433,9 +450,10 @@ fn generate_constraints<'a>(
         )]),
         AstNodeType::Unary(operator, operand) => {
             let mut constraints = match operator {
-                Operator::Neg => vec![
-                    TypeConstraint::new(TCSide::Expr(node.id), TCSide::Expr(operand.id)),
-                ],
+                Operator::Neg => vec![TypeConstraint::new(
+                    TCSide::Expr(node.id),
+                    TCSide::Expr(operand.id),
+                )],
                 Operator::Not => vec![
                     TypeConstraint::new(TCSide::Expr(node.id), TCSide::basic(TCNodeType::Bool)),
                     TypeConstraint::new(TCSide::Expr(operand.id), TCSide::basic(TCNodeType::Bool)),

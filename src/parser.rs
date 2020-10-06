@@ -229,7 +229,9 @@ impl<'a> Parser<'a> {
         let type_annotation = if self.match_tok(TokenType::Colon) {
             self.consume(TokenType::Identifier, "Expect type annotation after ':'");
             Some(self.previous.source.to_string())
-        } else { None };
+        } else {
+            None
+        };
         AstNode::new(
             self.id(),
             self.previous.line,
@@ -256,7 +258,11 @@ impl<'a> Parser<'a> {
             "Expect '(' before function parameters.",
         );
         let line = self.previous.line;
-        let params = self.comma_separated(InnerParser::Variable, TokenType::RightParen, "after parameters.");
+        let params = self.comma_separated(
+            InnerParser::Variable,
+            TokenType::RightParen,
+            "after parameters.",
+        );
 
         self.consume(TokenType::Arrow, "Expect '->' after parameters.");
         self.consume(TokenType::Identifier, "Expect return type after ->");
@@ -373,15 +379,8 @@ impl<'a> Parser<'a> {
         } else {
             Some(Box::new(self.expression()))
         };
-        self.consume(
-            TokenType::SemiColon,
-            "Expect ';' after return statement.",
-        );
-        AstNode::new(
-            self.id(),
-            line,
-            AstNodeType::ReturnStatement(value),
-        )
+        self.consume(TokenType::SemiColon, "Expect ';' after return statement.");
+        AstNode::new(self.id(), line, AstNodeType::ReturnStatement(value))
     }
 
     fn expression(&mut self) -> AstNode {
@@ -472,7 +471,11 @@ impl<'a> Parser<'a> {
 
     fn call(&mut self, target: AstNode) -> AstNode {
         let line = self.previous.line;
-        let args = self.comma_separated(InnerParser::Expression, TokenType::RightParen, "after arguments.");
+        let args = self.comma_separated(
+            InnerParser::Expression,
+            TokenType::RightParen,
+            "after arguments.",
+        );
         AstNode::new(
             self.id(),
             line,
@@ -483,7 +486,12 @@ impl<'a> Parser<'a> {
         )
     }
 
-    fn comma_separated(&mut self, inner: InnerParser, end_tok: TokenType, context: &'static str) -> Vec<AstNode> {
+    fn comma_separated(
+        &mut self,
+        inner: InnerParser,
+        end_tok: TokenType,
+        context: &'static str,
+    ) -> Vec<AstNode> {
         let mut args = Vec::new();
         // This loop looks weird, but it should parse arg lists with an optional trailing comma
         loop {
@@ -508,7 +516,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-enum InnerParser{
+enum InnerParser {
     Expression,
     Variable,
 }

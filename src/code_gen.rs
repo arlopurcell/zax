@@ -28,11 +28,11 @@ impl Generator {
         Self {
             //function: FunctionObj::new(),
             chunk_builder: ChunkBuilder::new(),
-            locals: vec![Local{
+            locals: vec![Local {
                 name: "".to_string(),
                 depth: 0,
-                index: 0, 
-                size: 8
+                index: 0,
+                size: 8,
             }], // local representing the function object
             scope_depth: 0,
             func_type,

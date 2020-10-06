@@ -1,5 +1,5 @@
 use crate::chunk::ByteCode;
-use crate::code_gen::{Generator, FunctionType};
+use crate::code_gen::{FunctionType, Generator};
 use crate::common::{InterpretError, InterpretResult};
 use crate::heap::Heap;
 use crate::object::{ObjType, Object};
@@ -93,7 +93,12 @@ impl AstNode {
         self.generate_with_lvalue(generator, heap, false)
     }
 
-    fn generate_with_lvalue(self, generator: &mut Generator, heap: &mut Heap, lvalue: bool) -> InterpretResult {
+    fn generate_with_lvalue(
+        self,
+        generator: &mut Generator,
+        heap: &mut Heap,
+        lvalue: bool,
+    ) -> InterpretResult {
         /*
         let block_bytes = match &self.node_type {
             AstNodeType::Block(_) | AstNodeType::Call{target:_, args:_} => self.local_var_bytes(false),
@@ -106,7 +111,11 @@ impl AstNode {
                     statement.generate(generator, heap)?;
                 }
             }
-            AstNodeType::FunctionDef{return_type: _, params, body} => {
+            AstNodeType::FunctionDef {
+                return_type: _,
+                params,
+                body,
+            } => {
                 // TODO pass in function name for debugging
                 let mut child_generator = Generator::new(FunctionType::Function);
                 child_generator.begin_scope();
@@ -117,7 +126,10 @@ impl AstNode {
                         AstNodeType::Variable(name, _) => {
                             child_generator.add_local(
                                 &name,
-                                param.data_type.expect("Parameter must have data type").size(),
+                                param
+                                    .data_type
+                                    .expect("Parameter must have data type")
+                                    .size(),
                             );
                             //param.generate_with_lvalue(&mut child_generator, heap, true);
                         }
@@ -145,8 +157,8 @@ impl AstNode {
                 let func_obj = child_generator.end(arity);
                 let heap_index = heap.allocate(Object::new(ObjType::Function(Box::new(func_obj))));
                 generator.emit_constant_8(&heap_index.to_be_bytes(), self.line)
-            },
-            AstNodeType::Call{target, args} => {
+            }
+            AstNodeType::Call { target, args } => {
                 target.generate(generator, heap)?;
                 let size = args
                     .iter()
@@ -168,7 +180,10 @@ impl AstNode {
                     Some(DataType::Float) => ByteCode::PrintFloat,
                     Some(DataType::Bool) => ByteCode::PrintBool,
                     Some(DataType::Str) => ByteCode::PrintObject,
-                    Some(DataType::Function{return_type: _, parameters: _}) => ByteCode::PrintObject,
+                    Some(DataType::Function {
+                        return_type: _,
+                        parameters: _,
+                    }) => ByteCode::PrintObject,
                     Some(DataType::Nil) => return error(self.line, "Can't print nil"),
                     None => panic!("None arg type for print statement: {:?}", e.data_type),
                 };
@@ -192,7 +207,11 @@ impl AstNode {
                     return error(self.line, "Can't return from top-level code.");
                 }
                 let code = if let Some(e) = e {
-                    let size = e.data_type.as_ref().expect("Return value must be typed").size();
+                    let size = e
+                        .data_type
+                        .as_ref()
+                        .expect("Return value must be typed")
+                        .size();
                     e.generate(generator, heap)?;
                     ByteCode::Return(size)
                 } else {
@@ -208,7 +227,10 @@ impl AstNode {
                             Some(DataType::Int)
                             | Some(DataType::Float)
                             | Some(DataType::Str)
-                            | Some(DataType::Function{return_type: _, parameters: _}) => ByteCode::DefineGlobal8(constant),
+                            | Some(DataType::Function {
+                                return_type: _,
+                                parameters: _,
+                            }) => ByteCode::DefineGlobal8(constant),
                             Some(DataType::Bool) => ByteCode::DefineGlobal1(constant),
                             Some(DataType::Nil) | None => {
                                 panic!("No data type for global variable")
@@ -267,9 +289,13 @@ impl AstNode {
                 if !lvalue {
                     if let Some(local_index) = generator.resolve_local(&name) {
                         let code = match &self.data_type {
-                            Some(DataType::Int) | Some(DataType::Float) | Some(DataType::Str) | Some(DataType::Function{return_type: _, parameters: _}) => {
-                                ByteCode::GetLocal8(local_index)
-                            }
+                            Some(DataType::Int)
+                            | Some(DataType::Float)
+                            | Some(DataType::Str)
+                            | Some(DataType::Function {
+                                return_type: _,
+                                parameters: _,
+                            }) => ByteCode::GetLocal8(local_index),
                             Some(DataType::Bool) => ByteCode::GetLocal1(local_index),
                             _ => panic!("Unexpected data type for variable"),
                         };
@@ -280,7 +306,10 @@ impl AstNode {
                             Some(DataType::Int)
                             | Some(DataType::Float)
                             | Some(DataType::Str)
-                            | Some(DataType::Function{return_type: _, parameters: _}) => ByteCode::GetGlobal8(constant),
+                            | Some(DataType::Function {
+                                return_type: _,
+                                parameters: _,
+                            }) => ByteCode::GetGlobal8(constant),
                             Some(DataType::Bool) => ByteCode::GetGlobal1(constant),
                             Some(DataType::Nil) | None => panic!("None data type for variable"),
                         };
@@ -474,10 +503,7 @@ impl AstNode {
         }
     }
 
-    pub fn resolve_types(
-        &mut self,
-        substitutions: &Vec<TypeConstraint>,
-    ) -> InterpretResult {
+    pub fn resolve_types(&mut self, substitutions: &Vec<TypeConstraint>) -> InterpretResult {
         let data_type = find_type(&self, substitutions)?;
         self.data_type = Some(data_type);
         /*
