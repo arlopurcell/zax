@@ -1,6 +1,6 @@
 use std::mem::swap;
 
-use crate::ast::{AstNode, AstNodeType, Operator};
+use crate::ast::{AstNode, AstNodeType, Operator, VarLocation};
 use crate::lexer::{Lexer, Token, TokenType};
 use crate::object::FunctionObj;
 
@@ -235,7 +235,7 @@ impl<'a> Parser<'a> {
         AstNode::new(
             self.id(),
             self.previous.line,
-            AstNodeType::Variable(var_name.to_string(), type_annotation),
+            AstNodeType::Variable{name: var_name.to_string(), type_annotation, location: VarLocation::Global},
         )
     }
 
@@ -306,7 +306,7 @@ impl<'a> Parser<'a> {
         }
 
         self.consume(TokenType::RightBrace, "Expect '}' after block.");
-        AstNode::new(self.id(), line, AstNodeType::Block(statements))
+        AstNode::new(self.id(), line, AstNodeType::Block(statements, 0))
     }
 
     fn if_statement(&mut self) -> AstNode {
@@ -325,7 +325,7 @@ impl<'a> Parser<'a> {
             AstNode::new(
                 self.id(),
                 self.previous.line,
-                AstNodeType::Block(Vec::new()),
+                AstNodeType::Block(Vec::new(), 0),
             )
         };
         AstNode::new(
@@ -417,7 +417,7 @@ impl<'a> Parser<'a> {
         AstNode::new(
             self.id(),
             self.previous.line,
-            AstNodeType::Variable(self.previous.source.to_string(), None),
+            AstNodeType::Variable{name: self.previous.source.to_string(), type_annotation: None, location: VarLocation::Global},
         )
     }
 

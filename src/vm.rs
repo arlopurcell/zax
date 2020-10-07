@@ -101,6 +101,10 @@ impl Stack {
         self.0[self.0.len() - 1]
     }
 
+    fn peek_bytes_n(&self, n: usize) -> &[u8] {
+        &self.0[self.0.len() - n..]
+    }
+
     fn peek_bytes_8(&self) -> &[u8] {
         &self.0[self.0.len() - 8..]
     }
@@ -262,12 +266,8 @@ impl VM {
                 ByteCode::PrintFloat => println!("{}", self.stack.pop_float()),
                 ByteCode::PrintBool => println!("{}", self.stack.pop_bool()),
                 ByteCode::PrintObject => println!("{}", self.pop_heap()),
-                ByteCode::Constant1(constant) => {
-                    let constant = current_frame.chunk(&self.heap).get_constant(&constant, 1);
-                    stack.push(constant)
-                }
-                ByteCode::Constant8(constant) => {
-                    let constant = current_frame.chunk(&self.heap).get_constant(&constant, 8);
+                ByteCode::Constant(constant, n) => {
+                    let constant = current_frame.chunk(&self.heap).get_constant(&constant, n as usize);
                     stack.push(constant)
                 }
                 ByteCode::NegateInt => {
@@ -362,24 +362,14 @@ impl VM {
                     let a = self.stack.pop_float();
                     self.stack.push_bool(a <= b)
                 }
-                ByteCode::Equal8 => {
-                    let b = self.stack.pop_bytes_8();
-                    let a = self.stack.pop_bytes_8();
+                ByteCode::Equal(n) => {
+                    let b = self.stack.pop_bulk(n as usize);
+                    let a = self.stack.pop_bulk(n as usize);
                     self.stack.push_bool(a == b);
                 }
-                ByteCode::NotEqual8 => {
-                    let b = self.stack.pop_bytes_8();
-                    let a = self.stack.pop_bytes_8();
-                    self.stack.push_bool(a != b);
-                }
-                ByteCode::Equal1 => {
-                    let b = self.stack.pop_byte();
-                    let a = self.stack.pop_byte();
-                    self.stack.push_bool(a == b);
-                }
-                ByteCode::NotEqual1 => {
-                    let b = self.stack.pop_byte();
-                    let a = self.stack.pop_byte();
+                ByteCode::NotEqual(n) => {
+                    let b = self.stack.pop_bulk(n as usize);
+                    let a = self.stack.pop_bulk(n as usize);
                     self.stack.push_bool(a != b);
                 }
                 ByteCode::EqualHeap => {
@@ -398,31 +388,19 @@ impl VM {
                     result.push_str(b.as_string());
                     self.push_string(result);
                 }
-                ByteCode::Pop8 => {
-                    self.stack.pop_bytes_8();
+                ByteCode::Pop(n) => {
+                    self.stack.pop_bulk(n);
                 }
-                ByteCode::Pop1 => {
-                    self.stack.pop_byte();
-                }
-                ByteCode::DefineGlobal1(constant) => {
+                ByteCode::DefineGlobal(constant, n) => {
                     let constant = self
                         .current_frame()
                         .chunk(&self.heap)
                         .get_constant(&constant, 8);
                     let name = self.heap.get_with_bytes(constant).as_string().to_string();
-                    let value = vec![self.stack.pop_byte()];
+                    let value = self.stack.pop_bulk(n as usize);
                     self.globals.insert(name, value);
                 }
-                ByteCode::DefineGlobal8(constant) => {
-                    let constant = self
-                        .current_frame()
-                        .chunk(&self.heap)
-                        .get_constant(&constant, 8);
-                    let name = self.heap.get_with_bytes(constant).as_string().to_string();
-                    let value = self.stack.pop_bytes_8().to_vec();
-                    self.globals.insert(name, value);
-                }
-                ByteCode::GetGlobal1(constant) => {
+                ByteCode::GetGlobal(constant, _) => {
                     let constant = self
                         .current_frame()
                         .chunk(&self.heap)
@@ -436,28 +414,14 @@ impl VM {
                         return Err(InterpretError::Runtime);
                     }
                 }
-                ByteCode::GetGlobal8(constant) => {
+                ByteCode::SetGlobal(constant, n) => {
                     let constant = self
                         .current_frame()
                         .chunk(&self.heap)
                         .get_constant(&constant, 8);
                     let name = self.heap.get_with_bytes(constant).as_string();
-                    if let Some(value) = self.globals.get(name) {
-                        self.stack.push(value)
-                    } else {
-                        // TODO static analysis for variable usage
-                        self.runtime_error(&format!("Undefined variable {}", name));
-                        return Err(InterpretError::Runtime);
-                    }
-                }
-                ByteCode::SetGlobal1(constant) => {
-                    let constant = self
-                        .current_frame()
-                        .chunk(&self.heap)
-                        .get_constant(&constant, 8);
-                    let name = self.heap.get_with_bytes(constant).as_string();
-                    let value = vec![self.stack.peek_byte()];
-                    let already_defined = if let None = self.globals.insert(name.to_string(), value)
+                    let value = self.stack.peek_bytes_n(n as usize);
+                    let already_defined = if let None = self.globals.insert(name.to_string(), value.to_vec())
                     {
                         true
                     } else {
@@ -471,50 +435,25 @@ impl VM {
                         return Err(InterpretError::Runtime);
                     }
                 }
-                ByteCode::SetGlobal8(constant) => {
-                    let constant = self
-                        .current_frame()
-                        .chunk(&self.heap)
-                        .get_constant(&constant, 8);
-                    let name = self.heap.get_with_bytes(constant).as_string();
-                    let value = self.stack.peek_bytes_8().to_vec();
-                    let already_defined = if let None = self.globals.insert(name.to_string(), value)
-                    {
-                        true
-                    } else {
-                        false
-                    };
-                    if already_defined {
-                        // TODO static analysis for variable usage
-                        // It was already defined
-                        self.globals.remove(name);
-                        self.runtime_error(&format!("Undefined variable {}", name));
-                        return Err(InterpretError::Runtime);
-                    }
-                }
-                ByteCode::GetLocal1(index) => {
+                ByteCode::GetLocal(index, n) => {
                     let value = self
                         .stack
-                        .read_at(index + current_frame.stack_index, 1)
+                        .read_at(index + current_frame.stack_index, n as usize)
                         .to_vec();
                     self.stack.push(&value)
                 }
-                ByteCode::GetLocal8(index) => {
-                    let value = self
-                        .stack
-                        .read_at(index + current_frame.stack_index, 8)
-                        .to_vec();
-                    self.stack.push(&value)
-                }
-                ByteCode::SetLocal1(index) => self.stack.write_at(
-                    index + current_frame.stack_index,
-                    1,
-                    &[self.stack.peek_byte()],
-                ),
-                ByteCode::SetLocal8(index) => {
-                    let value = self.stack.peek_bytes_8().to_vec();
+                ByteCode::SetLocal(index, n) => {
+                    let value = self.stack.peek_bytes_n(n as usize).to_vec();
                     self.stack
-                        .write_at(index + current_frame.stack_index, 8, &value)
+                        .write_at(index + current_frame.stack_index, n as usize, &value)
+                }
+                ByteCode::GetHeap(index, n) => {
+                    let value = self.heap.get(index);
+                    self.stack.push(value.to_stack());
+                }
+                ByteCode::SetHeap(index, n) => {
+                    let value = self.stack.peek_bytes_n(n as usize);
+                    self.heap.get_mut(index).update(value);
                 }
                 ByteCode::JumpIfFalse(offset) => {
                     if !self.stack.peek_bool() {

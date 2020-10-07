@@ -5,6 +5,7 @@ use crate::lexer::Lexer;
 use crate::object::FunctionObj;
 use crate::parser::Parser;
 use crate::type_check::{final_type_check, generate_substitutions};
+use crate::ast::analyze;
 
 pub fn compile(source: &str, heap: &mut Heap) -> Result<FunctionObj, InterpretError> {
     let bytes: Vec<_> = source.bytes().collect();
@@ -15,23 +16,9 @@ pub fn compile(source: &str, heap: &mut Heap) -> Result<FunctionObj, InterpretEr
     if parser.had_error {
         Err(InterpretError::Compile)
     } else {
-        let substitutions = generate_substitutions(&ast);
-        match substitutions {
-            Ok(substitutions) => {
-                ast.resolve_types(&substitutions)?;
-                final_type_check(&ast)?;
-
-                #[cfg(feature = "debug-logging")]
-                eprintln!("{:#?}", ast);
-
-                let mut generator = Generator::new(FunctionType::Script);
-                ast.generate(&mut generator, heap)
-                    .map(|()| generator.end(0))
-            }
-            Err(e) => {
-                eprintln!("{:?}", e);
-                Err(InterpretError::Compile)
-            }
-        }
+        analyze(&mut ast)?;
+        let mut generator = Generator::new(FunctionType::Script);
+        ast.generate(&mut generator, heap)
+            .map(|()| generator.end(0))
     }
 }

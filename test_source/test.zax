@@ -1,2 +1,14 @@
-print clock() - 100000.0;
-
+let a = 7;
+{
+    let b = 2;
+    let c = 9;
+    {
+        let d = 4;
+        a = 1;
+        c = 3;
+        print a; // 1
+        print b; // 2
+        print c; // 3
+        print d; // 4
+    }
+}

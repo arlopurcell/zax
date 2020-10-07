@@ -38,6 +38,18 @@ impl Object {
             _ => panic!("object at heap index non-string"),
         }
     }
+
+    pub fn to_stack(&self) -> &[u8] {
+        match &self.value {
+            _ => panic!("object {:?} cannot be moved to stack"),
+        }
+    }
+
+    pub fn update(&mut self, bytes: &[u8]) -> () {
+        match &self.value {
+            _ => panic!("object {:?} cannot updated from bytes"),
+        }
+    }
 }
 
 impl fmt::Display for Object {

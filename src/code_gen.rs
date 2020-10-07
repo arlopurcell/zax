@@ -3,8 +3,6 @@ use crate::object::FunctionObj;
 
 pub struct Generator {
     chunk_builder: ChunkBuilder,
-    locals: Vec<Local>,
-    pub scope_depth: usize,
     pub func_type: FunctionType,
 }
 
@@ -28,72 +26,9 @@ impl Generator {
         Self {
             //function: FunctionObj::new(),
             chunk_builder: ChunkBuilder::new(),
-            locals: vec![Local {
-                name: "".to_string(),
-                depth: 0,
-                index: 0,
-                size: 8,
-            }], // local representing the function object
-            scope_depth: 0,
             func_type,
         }
     }
-
-    pub fn add_local(&mut self, name: &str, size: u8) -> () {
-        let index = if self.locals.is_empty() {
-            0
-        } else {
-            self.locals
-                .get(self.locals.len() - 1)
-                .map(|l| l.index + l.size as usize)
-                .unwrap_or(0)
-        };
-        self.locals.push(Local {
-            name: name.to_string(),
-            depth: self.scope_depth,
-            index,
-            size,
-        })
-    }
-
-    pub fn resolve_local(&self, name: &str) -> Option<usize> {
-        self.locals
-            .iter()
-            .rev()
-            .find(|local| local.name == name)
-            .map(|local| local.index)
-    }
-
-    pub fn begin_scope(&mut self) -> () {
-        self.scope_depth += 1;
-    }
-
-    pub fn end_scope(&mut self) -> usize {
-        self.scope_depth -= 1;
-
-        let mut pop_n = 0;
-        let mut truncate_size = 0;
-        for (index, local) in self.locals.iter().enumerate().rev() {
-            if local.depth > self.scope_depth {
-                truncate_size = index + 1;
-                pop_n = local.index + local.size as usize;
-            }
-        }
-
-        self.locals.truncate(self.locals.len() - truncate_size);
-        pop_n
-        //self.locals.retain(|l| l.depth <= scope_depth);
-    }
-
-    /*
-    pub fn current_chunk(&self) -> &Chunk {
-        &self.function.chunk
-    }
-
-    pub fn current_chunk_mut(&mut self) -> &mut Chunk {
-        &mut self.function.chunk
-    }
-    */
 
     pub fn emit_byte(&mut self, code: ByteCode, line: u32) -> () {
         self.chunk_builder.append(code, line)
@@ -101,12 +36,12 @@ impl Generator {
 
     pub fn emit_constant_1(&mut self, value: u8, line: u32) -> () {
         let constant = self.chunk_builder.add_constant(&[value]);
-        self.emit_byte(ByteCode::Constant1(constant), line)
+        self.emit_byte(ByteCode::Constant(constant, 1), line)
     }
 
     pub fn emit_constant_8(&mut self, value: &[u8], line: u32) -> () {
         let constant = self.chunk_builder.add_constant(value);
-        self.emit_byte(ByteCode::Constant8(constant), line)
+        self.emit_byte(ByteCode::Constant(constant, 8), line)
     }
 
     pub fn add_constant(&mut self, value: &[u8]) -> u8 {
