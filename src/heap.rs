@@ -53,12 +53,32 @@ impl<'a> Heap {
         self.get(idx)
     }
 
+    pub fn get_upvalue(&self, closure_index: usize, upvalue_index: usize) -> usize {
+        let closure = self.get(closure_index);
+        if let ObjType::Closure(closure) = &closure.value {
+            closure.upvalue_indexes[upvalue_index]
+        } else {
+            panic!("Closure ref must be a ClosureObj")
+        }
+    }
+
+    pub fn update_upvalue(&mut self, closure_index: usize, upvalue_index: usize, value: &[u8]) -> () {
+        // This function is really wonky, but it's this way to make sure we're not borrowing stuff
+        // as mutable and immutable at the same time
+        let closure = self.get_mut(closure_index);
+        if let ObjType::Closure(closure) = &mut closure.value {
+            closure.upvalue_indexes[upvalue_index] = usize::from_be_bytes(value.try_into().unwrap());
+        } else {
+            panic!("Closure ref must be a ClosureObj")
+        }
+    }
+
     #[cfg(feature = "debug-logging")]
     pub fn print(&self) -> () {
-        print!(" heap: ");
+        eprint!(" heap: ");
         for slot in self.objects.values() {
-            print!("[ {} ]", slot.to_string());
+            eprint!("[ {} ]", slot.print(self));
         }
-        println!();
+        eprintln!();
     }
 }

@@ -5,7 +5,7 @@ use crate::chunk::{ByteCode, Chunk};
 use crate::common::{InterpretError, InterpretResult};
 use crate::compiler::compile;
 use crate::heap::Heap;
-use crate::object::{FunctionObj, NativeFunctionObj, ObjType, Object};
+use crate::object::{FunctionObj, ClosureObj, NativeFunctionObj, ObjType, Object};
 
 pub struct VM {
     stack: Stack,
@@ -17,26 +17,36 @@ pub struct VM {
 struct Stack(Vec<u8>);
 
 struct CallFrame {
-    function_heap_index: usize,
+    closure_heap_index: usize,
     ip: usize,
     stack_index: usize,
 }
 
 impl CallFrame {
-    fn new(function_heap_index: usize, stack_index: usize) -> Self {
+    fn new(closure_heap_index: usize, stack_index: usize) -> Self {
         Self {
-            function_heap_index,
+            closure_heap_index,
             stack_index,
             ip: 0,
         }
     }
 
-    fn func_obj<'a>(&self, heap: &'a Heap) -> &'a FunctionObj {
-        let object = heap.get(self.function_heap_index);
-        if let ObjType::Function(func_obj) = &object.value {
-            &func_obj
+    fn closure_obj<'a>(&self, heap: &'a Heap) -> &'a ClosureObj {
+        let object = heap.get(self.closure_heap_index);
+        if let ObjType::Closure(closure) = &object.value {
+            &closure
         } else {
-            panic!("FunctionObj of CallFrame wasn't a function")
+            panic!("closure of CallFrame wasn't a ClosureObj")
+        }
+    }
+
+    fn func_obj<'a>(&self, heap: &'a Heap) -> &'a FunctionObj {
+        let closure = self.closure_obj(heap);
+        let object = heap.get(closure.func_index);
+        if let ObjType::Function(func) = &object.value {
+            &func
+        } else {
+            panic!("func of closure of CallFrame wasn't a FunctionObj")
         }
     }
 
@@ -44,7 +54,7 @@ impl CallFrame {
         &self.func_obj(heap).chunk
     }
 
-    fn get_code<'a>(&self, heap: &'a Heap) -> ByteCode {
+    fn get_code(&self, heap: &Heap) -> ByteCode {
         self.func_obj(heap).chunk.get_code(self.ip)
     }
 
@@ -170,14 +180,15 @@ impl VM {
     pub fn interpret(&mut self, source: &str) -> InterpretResult {
         let main_func = compile(source, &mut self.heap)?;
 
-        #[cfg(feature = "debug-logging")]
-        main_func.chunk.disassemble("main");
 
         let heap_index = self
             .heap
-            .allocate(Object::new(ObjType::Function(Box::new(main_func))));
+            .allocate(Object::new(ObjType::Closure(Box::new(main_func))));
         let frame = CallFrame::new(heap_index, 0);
         self.frames.push(frame);
+
+        #[cfg(feature = "debug-logging")]
+        self.current_frame().chunk(&self.heap).disassemble("main");
 
         self.run()
     }
@@ -225,7 +236,7 @@ impl VM {
         loop {
             let VM {
                 stack,
-                heap: _,
+                heap,
                 globals: _,
                 frames,
             } = self;
@@ -243,13 +254,13 @@ impl VM {
                     eprint!("[ {} ]", slot);
                 }
                 eprintln!();
-                self.heap.print();
+                heap.print();
                 current_frame
-                    .chunk(&self.heap)
+                    .chunk(&heap)
                     .disassemble_instruction(current_frame.ip);
             }
 
-            let bc = current_frame.get_code(&self.heap);
+            let bc = current_frame.get_code(&heap);
             current_frame.ip += bc.size() as usize;
             match bc {
                 ByteCode::Return(size) => {
@@ -265,7 +276,11 @@ impl VM {
                 ByteCode::PrintInt => println!("{}", self.stack.pop_int()),
                 ByteCode::PrintFloat => println!("{}", self.stack.pop_float()),
                 ByteCode::PrintBool => println!("{}", self.stack.pop_bool()),
-                ByteCode::PrintObject => println!("{}", self.pop_heap()),
+                ByteCode::PrintObject => {
+                    let bytes = &(self.stack.pop_bytes_8());
+                    let value = heap.get_with_bytes(bytes);
+                    println!("{}", value.print(&heap))
+                },
                 ByteCode::Constant(constant, n) => {
                     let constant = current_frame.chunk(&self.heap).get_constant(&constant, n as usize);
                     stack.push(constant)
@@ -447,13 +462,16 @@ impl VM {
                     self.stack
                         .write_at(index + current_frame.stack_index, n as usize, &value)
                 }
-                ByteCode::GetHeap(index, n) => {
-                    let value = self.heap.get(index);
-                    self.stack.push(value.to_stack());
+                ByteCode::GetUpvalue(index, n) => {
+                    self.stack.push(&self.heap.get_upvalue(current_frame.closure_heap_index, index).to_be_bytes());
                 }
-                ByteCode::SetHeap(index, n) => {
+                ByteCode::SetUpvalue(index, n) => {
+                    //let mut closure = current_frame.closure_obj(&heap);
+                    //let closure = &mut closure;
                     let value = self.stack.peek_bytes_n(n as usize);
-                    self.heap.get_mut(index).update(value);
+                    //closure.update_upvalue(index, value, heap);
+                    heap.update_upvalue(current_frame.closure_heap_index, index, value);
+                    //self.heap.get_mut(index).update(value);
                 }
                 ByteCode::JumpIfFalse(offset) => {
                     if !self.stack.peek_bool() {
@@ -485,6 +503,20 @@ impl VM {
                     }
                 }
                 ByteCode::NoOp => (),
+                ByteCode::ToHeap(n) => {
+                    let value = stack.pop_bulk(n as usize);
+                    let heap_index = heap.allocate(Object::new(ObjType::Primitive(value)));
+                    stack.push(&heap_index.to_be_bytes());
+                }
+                ByteCode::GetHeap => {
+                    let heap_index = usize::from_be_bytes(stack.pop_bytes_8());
+                    let object = heap.get(heap_index);
+                    if let ObjType::Primitive(bytes) = &object.value {
+                        stack.push(bytes)
+                    } else {
+                        panic!("Can only copy primitives from the heap to the stack")
+                    }
+                }
             }
         }
     }

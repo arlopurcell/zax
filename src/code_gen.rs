@@ -1,5 +1,6 @@
 use crate::chunk::{ByteCode, Chunk, ChunkBuilder};
-use crate::object::FunctionObj;
+use crate::object::{FunctionObj, ClosureObj};
+use crate::common::{InterpretResult, InterpretError};
 
 pub struct Generator {
     chunk_builder: ChunkBuilder,
@@ -24,7 +25,6 @@ impl Generator {
     pub fn new(func_type: FunctionType) -> Self {
         // TODO accept function name as argument for debugging
         Self {
-            //function: FunctionObj::new(),
             chunk_builder: ChunkBuilder::new(),
             func_type,
         }
@@ -89,8 +89,9 @@ impl Generator {
         self.emit_byte(ByteCode::Loop(offset), line);
     }
 
-    pub fn end(mut self, arity: u8) -> FunctionObj {
+    pub fn end(mut self) -> Chunk {
         &mut self.emit_byte(ByteCode::Return(0), 0);
-        FunctionObj::new(Chunk::new(self.chunk_builder), arity)
+        Chunk::new(self.chunk_builder)
     }
+
 }

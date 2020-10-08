@@ -1,7 +1,10 @@
+use std::convert::TryInto;
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::chunk::Chunk;
+use crate::heap::Heap;
+use crate::common::InterpretError;
 
 #[derive(PartialEq, Eq)]
 pub struct Object {
@@ -13,6 +16,9 @@ pub enum ObjType {
     Str(Box<String>),
     Function(Box<FunctionObj>),
     NativeFunction(Box<NativeFunctionObj>),
+    Closure(Box<ClosureObj>),
+    Primitive(Vec<u8>),
+    Nil,
 }
 
 #[derive(PartialEq, Eq)]
@@ -20,6 +26,12 @@ pub struct FunctionObj {
     pub arity: u8,
     pub chunk: Chunk,
     //pub name: String,
+}
+
+#[derive(PartialEq, Eq)]
+pub struct ClosureObj {
+    pub func_index: usize,
+    pub upvalue_indexes: Vec<usize>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -39,31 +51,21 @@ impl Object {
         }
     }
 
-    pub fn to_stack(&self) -> &[u8] {
-        match &self.value {
-            _ => panic!("object {:?} cannot be moved to stack"),
-        }
-    }
-
-    pub fn update(&mut self, bytes: &[u8]) -> () {
-        match &self.value {
-            _ => panic!("object {:?} cannot updated from bytes"),
-        }
+    pub fn print(&self, heap: &Heap) -> String {
+        self.value.print(heap)
     }
 }
 
-impl fmt::Display for Object {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.value.fmt(f)
-    }
-}
 
-impl fmt::Display for ObjType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl ObjType {
+    pub fn print(&self, heap: &Heap) -> String {
         match self {
-            Self::Str(s) => write!(f, "\"{}\"", s),
-            Self::Function(func) => write!(f, "Function {}", func),
-            Self::NativeFunction(func) => write!(f, "Native Function {:?}", func),
+            Self::Str(s) => format!("\"{}\"", s),
+            Self::Function(func) => format!("Function {}", func),
+            Self::NativeFunction(func) => format!("Native Function {:?}", func),
+            Self::Closure(closure) => format!("Closure({}, upvalue_indexes: {:?})", heap.get(closure.func_index).print(heap), closure.upvalue_indexes),
+            Self::Primitive(value) => format!("Primitive {:?}", value),
+            Self::Nil => "nil".to_string(),
         }
     }
 }
@@ -83,6 +85,17 @@ impl fmt::Display for FunctionObj {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         //write!(f, "{}({})", self.name, self.arity)
         write!(f, "function({})", self.arity)
+    }
+}
+
+impl ClosureObj {
+    // TODO function name
+    pub fn new(chunk:Chunk, arity: u8, upvalue_count: u8, heap: &mut Heap) -> Self {
+        let func_index = heap.allocate(Object::new(ObjType::Function(Box::new(FunctionObj::new(chunk, arity)))));
+        Self {
+            func_index,
+            upvalue_indexes: (0..upvalue_count).map(|_| heap.allocate(Object::new(ObjType::Nil))).collect(),
+        }
     }
 }
 

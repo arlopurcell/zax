@@ -38,13 +38,15 @@ pub enum ByteCode {
     SetGlobal(u8, u8),
     GetLocal(usize, u8),
     SetLocal(usize, u8),
-    GetHeap(usize, u8),
-    SetHeap(usize, u8),
+    GetUpvalue(usize, u8),
+    SetUpvalue(usize, u8),
     JumpIfFalse(u16),
     Jump(u16),
     Loop(u16),
     Call(usize),
     NoOp,
+    ToHeap(u8),
+    GetHeap,
 }
 
 impl ByteCode {
@@ -76,10 +78,12 @@ impl ByteCode {
             | Self::EqualHeap
             | Self::NotEqualHeap
             | Self::Concat
+            | Self::GetHeap
             | Self::NoOp => 1,
             Self::Return(_)
             | Self::Equal(_)
             | Self::NotEqual(_)
+            | Self::ToHeap(_)
             => 2,
             Self::JumpIfFalse(_) | Self::Jump(_) | Self::Loop(_) 
             | Self::Constant(_, _)
@@ -91,8 +95,8 @@ impl ByteCode {
             | Self::Call(_) => 9,
             Self::GetLocal(_, _) 
             | Self::SetLocal(_, _)
-            | Self::GetHeap(_, _)
-            | Self::SetHeap(_, _)
+            | Self::GetUpvalue(_, _)
+            | Self::SetUpvalue(_, _)
                 => 10,
         }
     }
@@ -190,13 +194,15 @@ impl Chunk {
             0x21 => ByteCode::SetGlobal(self.get_u8(offset + 1), self.get_u8(offset + 2)),
             0x22 => ByteCode::GetLocal(self.get_usize(offset +  1), self.get_u8(offset + 9)),
             0x23 => ByteCode::SetLocal(self.get_usize(offset +  1), self.get_u8(offset + 9)),
-            0x24 => ByteCode::GetHeap(self.get_usize(offset +  1), self.get_u8(offset + 9)),
-            0x25 => ByteCode::SetHeap(self.get_usize(offset +  1), self.get_u8(offset + 9)),
+            0x24 => ByteCode::GetUpvalue(self.get_usize(offset +  1), self.get_u8(offset + 9)),
+            0x25 => ByteCode::SetUpvalue(self.get_usize(offset +  1), self.get_u8(offset + 9)),
             0x26 => ByteCode::JumpIfFalse(self.get_u16(offset + 1)),
             0x27 => ByteCode::Jump(self.get_u16(offset + 1)),
             0x28 => ByteCode::Loop(self.get_u16(offset + 1)),
             0x29 => ByteCode::Call(self.get_usize(offset + 1)),
             0x2a => ByteCode::NoOp,
+            0x2b => ByteCode::ToHeap(self.get_u8(offset + 1)),
+            0x2c => ByteCode::GetHeap,
             _ => panic!("Invalid byte code: {}", byte),
         }
     }
@@ -466,13 +472,13 @@ impl ChunkBuilder {
                 self.code.push(n);
                 self.lines.extend_from_slice(&[line; 10]);
             }
-            ByteCode::GetHeap(arg, n) => {
+            ByteCode::GetUpvalue(arg, n) => {
                 self.code.push(0x24);
                 self.code.extend_from_slice(&arg.to_be_bytes());
                 self.code.push(n);
                 self.lines.extend_from_slice(&[line; 10]);
             }
-            ByteCode::SetHeap(arg, n) => {
+            ByteCode::SetUpvalue(arg, n) => {
                 self.code.push(0x25);
                 self.code.extend_from_slice(&arg.to_be_bytes());
                 self.code.push(n);
@@ -500,6 +506,16 @@ impl ChunkBuilder {
             }
             ByteCode::NoOp => {
                 self.code.push(0x2a);
+                self.lines.push(line);
+            }
+            ByteCode::ToHeap(length) => {
+                self.code.push(0x2b);
+                self.code.push(length);
+                self.lines.push(line);
+                self.lines.push(line);
+            }
+            ByteCode::GetHeap => {
+                self.code.push(0x2c);
                 self.lines.push(line);
             }
         }

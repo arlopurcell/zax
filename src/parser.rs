@@ -2,7 +2,6 @@ use std::mem::swap;
 
 use crate::ast::{AstNode, AstNodeType, Operator, VarLocation};
 use crate::lexer::{Lexer, Token, TokenType};
-use crate::object::FunctionObj;
 
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
@@ -278,6 +277,7 @@ impl<'a> Parser<'a> {
                 return_type: return_type.to_string(),
                 params,
                 body: Box::new(body),
+                hoisted: 0,
             },
         )
     }

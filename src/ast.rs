@@ -2,7 +2,7 @@ use crate::chunk::ByteCode;
 use crate::code_gen::{FunctionType, Generator};
 use crate::common::{InterpretError, InterpretResult};
 use crate::heap::Heap;
-use crate::object::{ObjType, Object};
+use crate::object::{ObjType, Object, FunctionObj, ClosureObj};
 use crate::type_check::{find_type, DataType, TypeConstraint, final_type_check, generate_substitutions};
 
 #[derive(Debug, Clone)]
@@ -42,6 +42,7 @@ pub enum AstNodeType {
         return_type: String,
         params: Vec<AstNode>,
         body: Box<AstNode>,
+        hoisted: u8,
     },
     PrintStatement(Box<AstNode>),
     ExpressionStatement(Box<AstNode>),
@@ -62,7 +63,7 @@ struct Scope<'a> {
     enclosing: Option<Box<Scope<'a>>>,
     locals: Vec<Local<'a>>,
     scope_depth: usize,
-    hoisted: usize,
+    hoisted: u8,
 }
 
 #[derive(Debug)]
@@ -151,8 +152,10 @@ impl <'a> Scope<'a> {
             if let Some(node) = &mut local.node {
                 if let AstNodeType::Variable{name: local_name, type_annotation: _, location: local_location} = &mut node.node_type {
                     if name == local_name {
-                        *local_location = VarLocation::Heap(self.hoisted);
-                        *location = VarLocation::Heap(self.hoisted);
+                        // TODO change type of VarLocation::Heap content
+                        // TODO check not too many hoisted and do a compiler error
+                        *local_location = VarLocation::Heap(self.hoisted as usize);
+                        *location = VarLocation::Heap(self.hoisted as usize);
                         self.hoisted += 1;
                         return;
                     }
@@ -189,8 +192,8 @@ impl <'a> Scope<'a> {
     }
 
 
-    fn close(self) -> Scope<'a> {
-        self.enclosing.map(|enclose_box| *enclose_box).unwrap_or(Scope::top())
+    fn close(self) -> (u8, Scope<'a>) {
+        (self.hoisted, self.enclosing.map(|enclose_box| *enclose_box).unwrap_or(Scope::top()))
     }
 
 }
@@ -253,6 +256,7 @@ impl AstNode {
                 return_type: _,
                 params,
                 body,
+                hoisted,
             } => {
                 // TODO pass in function name for debugging
                 let mut child_generator = Generator::new(FunctionType::Function);
@@ -269,9 +273,10 @@ impl AstNode {
                 }
 
                 // TODO function name
-                let func_obj = child_generator.end(arity);
-                let heap_index = heap.allocate(Object::new(ObjType::Function(Box::new(func_obj))));
-                generator.emit_constant_8(&heap_index.to_be_bytes(), self.line)
+                let chunk = child_generator.end();
+                let closure = ClosureObj::new(chunk, arity, hoisted, heap);
+                let closure_heap_index = heap.allocate(Object::new(ObjType::Closure(Box::new(closure))));
+                generator.emit_constant_8(&closure_heap_index.to_be_bytes(), self.line)
             }
             AstNodeType::Call { target, args } => {
                 target.generate(generator, heap)?;
@@ -331,6 +336,13 @@ impl AstNode {
             AstNodeType::DeclareStatement(lhs, rhs) => match lhs.node_type {
                 AstNodeType::Variable{name, type_annotation: _, location} => {
                     let size = rhs.data_type.as_ref().map(|dt| dt.size()).expect("No data type for variable");
+                    let is_prim = 
+                        match rhs.data_type.as_ref() {
+                            Some(DataType::Int)
+                                | Some(DataType::Float)
+                                | Some(DataType::Bool) => true,
+                            _ => false,
+                        };
                     match location {
                         VarLocation::Local(_index) => {
                             // TODO?
@@ -341,7 +353,10 @@ impl AstNode {
                             rhs.generate(generator, heap)?;
                             // note that this keeps it on the stack too so that other locals' stack
                             // indexes don't get thrown off
-                            generator.emit_byte(ByteCode::SetHeap(index, size), self.line);
+                            if is_prim {
+                                generator.emit_byte(ByteCode::ToHeap(size), self.line);
+                            }
+                            generator.emit_byte(ByteCode::SetUpvalue(index, size), self.line);
                         },
                         VarLocation::Global => {
                             let constant = identifier_constant(&name, heap, generator);
@@ -384,13 +399,23 @@ impl AstNode {
             }
             AstNodeType::Variable{name, type_annotation: _, location} => {
                 if !lvalue {
+                    let is_prim = 
+                        match &self.data_type {
+                            Some(DataType::Int)
+                                | Some(DataType::Float)
+                                | Some(DataType::Bool) => true,
+                            _ => false,
+                        };
                     let size = self.data_type.map(|dt| dt.size()).expect("No data type for variable");
                     match location {
                         VarLocation::Local(index) => {
                             generator.emit_byte(ByteCode::GetLocal(index, size), self.line)
                         },
                         VarLocation::Heap(index) => {
-                            generator.emit_byte(ByteCode::GetHeap(index, size), self.line)
+                            generator.emit_byte(ByteCode::GetUpvalue(index, size), self.line);
+                            if is_prim {
+                                generator.emit_byte(ByteCode::GetHeap, self.line);
+                            }
                         },
                         VarLocation::Global => {
                             let constant = identifier_constant(&name, heap, generator);
@@ -482,9 +507,31 @@ impl AstNode {
                     },
                     Operator::Assign => {
                         let size = lhs.data_type.as_ref().map(|dt| dt.size()).expect("No data type for variable");
-                        let code = lhs.get_lvalue_code(heap, generator, size);
+                        let is_prim = 
+                            match rhs.data_type.as_ref() {
+                                Some(DataType::Int)
+                                    | Some(DataType::Float)
+                                    | Some(DataType::Bool) => true,
+                                    _ => false,
+                            };
+                        let code = match &lhs.node_type {
+                            AstNodeType::Variable{name, type_annotation: _, location} => match location {
+                                VarLocation::Local(index) => ByteCode::SetLocal(*index, size),
+                                VarLocation::Heap(index) => ByteCode::SetUpvalue(*index, size),
+                                VarLocation::Global => {
+                                    let constant = identifier_constant(&name, heap, generator);
+                                    ByteCode::SetGlobal(constant, size)
+                                },
+                            },
+                            // TODO for dotted stuff, recurse
+                            _ => panic!("Invalid lvalue"),
+                        };
                         lhs.generate_with_lvalue(generator, heap, true);
                         rhs.generate(generator, heap)?;
+
+                        if is_prim {
+                            generator.emit_byte(ByteCode::ToHeap(size), self.line);
+                        }
                         generator.emit_byte(code, self.line);
                         return Ok(());
                     }
@@ -520,30 +567,6 @@ impl AstNode {
             AstNodeType::Error => panic!("Shouldn't try to generate code for Error node"),
         }
         Ok(())
-    }
-
-    fn get_lvalue_code(
-        &self,
-        heap: &mut Heap,
-        generator: &mut Generator,
-        size: u8,
-    ) -> ByteCode {
-        match &self.node_type {
-            AstNodeType::Variable{name, type_annotation: _, location} => match location {
-                VarLocation::Local(index) => {
-                    ByteCode::SetLocal(*index, size)
-                },
-                VarLocation::Heap(index) => {
-                    ByteCode::SetHeap(*index, size)
-                },
-                VarLocation::Global => {
-                    let constant = identifier_constant(&name, heap, generator);
-                    ByteCode::SetGlobal(constant, size)
-                },
-            },
-            // TODO for dotted stuff, recurse
-            _ => panic!("Invalid lvalue"),
-        }
     }
 
     fn resolve_variables<'a>(&'a mut self, mut scope: Scope<'a>) -> Scope<'a> {
@@ -607,7 +630,7 @@ impl AstNode {
                 _ => panic!("lhs of declare must be variable"),
             }
                 */
-            AstNodeType::FunctionDef{ return_type: _, params, body } => {
+            AstNodeType::FunctionDef{ return_type: _, params, body, hoisted} => {
                 let mut inner_scope = Scope::child(scope);
 
                 for param in params {
@@ -625,7 +648,9 @@ impl AstNode {
                     _ => panic!("Function body must be a Block"),
                 }
                 */
-                inner_scope.close()
+                let (inner_hoisted, scope) = inner_scope.close();
+                *hoisted = inner_hoisted;
+                scope
             }
             AstNodeType::Variable{name, type_annotation: _, location} => {
                 scope.resolve(name, location);
@@ -693,6 +718,7 @@ impl AstNode {
                 return_type: _,
                 params,
                 body,
+                hoisted: _,
             } => {
                 let params: Result<Vec<_>, _> = params
                     .into_iter()

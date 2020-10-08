@@ -408,6 +408,7 @@ fn check_operator_constraints(node: &AstNode) -> Result<(), TypeError> {
             return_type: _,
             params,
             body,
+            hoisted: _
         } => {
             // TODO stuff with scope and return type?
             for param in params.iter() {
@@ -543,7 +544,6 @@ fn generate_constraints<'a>(
             match &lhs.node_type {
                 AstNodeType::Variable{name, type_annotation, location: _} => {
                     scope.insert(&name, TCSide::Expr(rhs.id));
-                    //eprintln!("INSERTING constraint for {}", name);
                     if let Some(type_annotation) = type_annotation {
                         let var_type = TCNodeType::try_from(&type_annotation)?;
                         constraints.push(TypeConstraint::new(
@@ -610,6 +610,7 @@ fn generate_constraints<'a>(
             return_type,
             params,
             body,
+            hoisted: _
         } => {
             let mut func_scope = Scope::new(Some(scope));
             let func_scope = &mut func_scope;
