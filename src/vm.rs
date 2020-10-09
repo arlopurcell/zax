@@ -10,21 +10,21 @@ use crate::object::{FunctionObj, NativeFunctionObj, ObjType, Object};
 pub struct VM {
     stack: Stack,
     heap: Heap,
-    globals: HashMap<String, Vec<u8>>,
+    globals: HashMap<String, i64>,
     frames: Vec<CallFrame>,
 }
 
-struct Stack(Vec<u8>);
+struct Stack(Vec<i64>);
 
 #[derive(Debug)]
 struct CallFrame {
-    function_heap_index: usize,
+    function_heap_index: i64,
     ip: usize,
     stack_index: usize,
 }
 
 impl CallFrame {
-    fn new(function_heap_index: usize, stack_index: usize) -> Self {
+    fn new(function_heap_index: i64, stack_index: usize) -> Self {
         Self {
             function_heap_index,
             stack_index,
@@ -67,91 +67,59 @@ impl Stack {
         self.0.len()
     }
 
-    fn skip_peek_bytes_8(&self, skip: usize) -> &[u8] {
-        let start_index = self.0.len() - skip - 8;
-        &self.0[start_index..start_index + 8]
+    fn skip_peek(&self, skip: usize) -> i64 {
+        self.0[self.0.len() - skip - 1]
     }
 
-    fn pop_bulk(&mut self, bytes: usize) -> Vec<u8> {
-        self.0.drain(self.0.len() - bytes..).collect()
+    fn pop_bulk(&mut self, words: usize) -> Vec<i64> {
+        self.0.drain(self.0.len() - words..).collect()
     }
 
     fn truncate(&mut self, size: usize) -> () {
         self.0.truncate(size);
     }
 
-    fn pop_bytes_8(&mut self) -> [u8; 8] {
-        let (a, b, c, d, e, f, g, h) = (
-            self.0.pop().unwrap(),
-            self.0.pop().unwrap(),
-            self.0.pop().unwrap(),
-            self.0.pop().unwrap(),
-            self.0.pop().unwrap(),
-            self.0.pop().unwrap(),
-            self.0.pop().unwrap(),
-            self.0.pop().unwrap(),
-        );
-        [h, g, f, e, d, c, b, a]
-    }
-
-    fn pop_byte(&mut self) -> u8 {
+    fn pop(&mut self) -> i64 {
         self.0.pop().unwrap()
     }
 
-    fn peek_byte(&self) -> u8 {
-        self.0[self.0.len() - 1]
-    }
-
-    fn peek_bytes_n(&self, n: usize) -> &[u8] {
-        &self.0[self.0.len() - n..]
+    fn peek(&self) -> i64 {
+        self.skip_peek(0)
     }
 
     fn pop_bool(&mut self) -> bool {
-        self.pop_byte() != 0
+        self.pop() != 0
     }
 
     fn peek_bool(&self) -> bool {
-        self.peek_byte() != 0
+        self.peek() != 0
     }
 
-    fn pop_int(&mut self) -> i64 {
-        i64::from_be_bytes(self.pop_bytes_8())
+    fn push(&mut self, value: i64) -> () {
+        self.0.push(value)
     }
 
-    fn pop_float(&mut self) -> f64 {
-        f64::from_be_bytes(self.pop_bytes_8())
-    }
-
-    fn push(&mut self, bytes: &[u8]) -> () {
-        self.0.extend_from_slice(bytes)
+    fn push_bulk(&mut self, values: &[i64]) -> () {
+        self.0.extend_from_slice(values)
     }
 
     fn push_bool(&mut self, val: bool) -> () {
-        self.push(&[if val { 1 } else { 0 }])
+        self.push(if val { 1 } else { 0 })
     }
 
-    fn push_int(&mut self, val: i64) -> () {
-        self.push(&val.to_be_bytes())
+    fn get(&self, index: usize) -> i64 {
+        self.0[index]
     }
 
-    fn push_float(&mut self, val: f64) -> () {
-        self.push(&val.to_be_bytes())
-    }
-
-    fn read_at(&self, index: usize, size: usize) -> &[u8] {
-        &self.0[index..index + size]
-    }
-
-    fn write_at(&mut self, index: usize, size: usize, value: &[u8]) -> () {
-        self.0
-            .splice(index..index + size, value.into_iter().cloned());
+    fn set(&mut self, index: usize, value: i64) -> () {
+        self.0[index] = value
     }
 }
 
 impl VM {
     pub fn new() -> Self {
         let mut vm = Self {
-            stack: Stack(vec![0, 0, 0, 0, 0, 0, 0, 0]), // 8 bytes to represent the root "function"
+            stack: Stack(vec![0]), // 1 word to represent the root "function"
             heap: Heap::new(),
             globals: HashMap::new(),
             frames: Vec::with_capacity(u8::MAX as usize),
@@ -165,10 +133,9 @@ impl VM {
     }
 
     pub fn interpret(&mut self, source: &str) -> InterpretResult {
-        let main_func = compile(source, &mut self.heap)?;
+        let main_func = compile(source, self)?;
 
         let heap_index = self
-            .heap
             .allocate(Object::new(ObjType::Function(Box::new(main_func))));
         let frame = CallFrame::new(heap_index, 0);
         self.frames.push(frame);
@@ -198,22 +165,21 @@ impl VM {
     fn define_native(&mut self, func_obj: NativeFunctionObj) -> () {
         let name = func_obj.name().to_string();
         let heap_index = self
-            .heap
             .allocate(Object::new(ObjType::NativeFunction(Box::new(func_obj))));
-        self.globals.insert(name, heap_index.to_be_bytes().to_vec());
+        self.globals.insert(name, heap_index);
     }
 
     fn pop_heap_2(&mut self) -> (&Object, &Object) {
-        let bytes_2 = &self.stack.pop_bytes_8();
-        let bytes_1 = &self.stack.pop_bytes_8();
-        let o2 = self.heap.get_with_bytes(bytes_2);
-        let o1 = self.heap.get_with_bytes(bytes_1);
+        let index_2 = self.stack.pop();
+        let index_1 = self.stack.pop();
+        let o2 = self.heap.get(&index_2);
+        let o1 = self.heap.get(&index_1);
         (o1, o2)
     }
 
     fn push_string(&mut self, val: &str) -> () {
-        let heap_index = self.heap.allocate_string(val);
-        self.stack.push(&heap_index.to_be_bytes())
+        let heap_index = self.allocate_string(val);
+        self.stack.push(heap_index)
     }
 
     fn run(&mut self) -> InterpretResult {
@@ -256,122 +222,122 @@ impl VM {
                     }
 
                     self.stack.truncate(old_frame.stack_index);
-                    self.stack.push(&result);
+                    self.stack.push_bulk(&result);
                 }
-                ByteCode::PrintInt => println!("{}", self.stack.pop_int()),
-                ByteCode::PrintFloat => println!("{}", self.stack.pop_float()),
+                ByteCode::PrintInt => println!("{}", self.stack.pop()),
+                ByteCode::PrintFloat => println!("{}", self.stack.pop() as f64),
                 ByteCode::PrintBool => println!("{}", self.stack.pop_bool()),
                 ByteCode::PrintObject => {
-                    let bytes = &(self.stack.pop_bytes_8());
-                    let value = heap.get_with_bytes(bytes);
+                    let heap_ref = self.stack.pop();
+                    let value = heap.get(&heap_ref);
                     println!("{}", value.print(&heap))
                 }
-                ByteCode::Constant(constant, n) => {
+                ByteCode::Constant(constant) => {
                     let constant = current_frame
                         .chunk(&self.heap)
-                        .get_constant(&constant, n as usize);
+                        .get_constant(&constant);
                     stack.push(constant)
                 }
                 ByteCode::NegateInt => {
-                    let arg = self.stack.pop_int();
-                    self.stack.push_int(-arg)
+                    let arg = self.stack.pop();
+                    self.stack.push(-arg)
                 }
                 ByteCode::NegateFloat => {
-                    let arg = self.stack.pop_float();
-                    self.stack.push_float(-arg)
+                    let arg = self.stack.pop() as f64;
+                    self.stack.push((-arg) as i64)
                 }
                 ByteCode::Not => {
                     let arg = self.stack.pop_bool();
                     self.stack.push_bool(!arg)
                 }
                 ByteCode::AddInt => {
-                    let b = self.stack.pop_int();
-                    let a = self.stack.pop_int();
-                    self.stack.push_int(a + b)
+                    let b = self.stack.pop();
+                    let a = self.stack.pop();
+                    self.stack.push(a + b)
                 }
                 ByteCode::AddFloat => {
-                    let b = self.stack.pop_float();
-                    let a = self.stack.pop_float();
-                    self.stack.push_float(a + b)
+                    let b = self.stack.pop() as f64;
+                    let a = self.stack.pop() as f64;
+                    self.stack.push((a + b) as i64)
                 }
                 ByteCode::SubInt => {
-                    let b = self.stack.pop_int();
-                    let a = self.stack.pop_int();
-                    self.stack.push_int(a - b)
+                    let b = self.stack.pop();
+                    let a = self.stack.pop();
+                    self.stack.push(a - b)
                 }
                 ByteCode::SubFloat => {
-                    let b = self.stack.pop_float();
-                    let a = self.stack.pop_float();
-                    self.stack.push_float(a - b)
+                    let b = self.stack.pop() as f64;
+                    let a = self.stack.pop() as f64;
+                    self.stack.push((a - b) as i64)
                 }
                 ByteCode::MulInt => {
-                    let b = self.stack.pop_int();
-                    let a = self.stack.pop_int();
-                    self.stack.push_int(a * b)
+                    let b = self.stack.pop();
+                    let a = self.stack.pop();
+                    self.stack.push(a * b)
                 }
                 ByteCode::MulFloat => {
-                    let b = self.stack.pop_float();
-                    let a = self.stack.pop_float();
-                    self.stack.push_float(a * b)
+                    let b = self.stack.pop() as f64;
+                    let a = self.stack.pop() as f64;
+                    self.stack.push((a * b) as i64)
                 }
                 ByteCode::DivInt => {
-                    let b = self.stack.pop_int();
-                    let a = self.stack.pop_int();
-                    self.stack.push_int(a / b)
+                    let b = self.stack.pop();
+                    let a = self.stack.pop();
+                    self.stack.push(a / b)
                 }
                 ByteCode::DivFloat => {
-                    let b = self.stack.pop_float();
-                    let a = self.stack.pop_float();
-                    self.stack.push_float(a / b)
+                    let b = self.stack.pop() as f64;
+                    let a = self.stack.pop() as f64;
+                    self.stack.push((a / b) as i64)
                 }
                 ByteCode::GreaterInt => {
-                    let b = self.stack.pop_int();
-                    let a = self.stack.pop_int();
+                    let b = self.stack.pop();
+                    let a = self.stack.pop();
                     self.stack.push_bool(a > b)
                 }
                 ByteCode::GreaterFloat => {
-                    let b = self.stack.pop_float();
-                    let a = self.stack.pop_float();
+                    let b = self.stack.pop() as f64;
+                    let a = self.stack.pop() as f64;
                     self.stack.push_bool(a > b)
                 }
                 ByteCode::LessInt => {
-                    let b = self.stack.pop_int();
-                    let a = self.stack.pop_int();
+                    let b = self.stack.pop();
+                    let a = self.stack.pop();
                     self.stack.push_bool(a < b)
                 }
                 ByteCode::LessFloat => {
-                    let b = self.stack.pop_float();
-                    let a = self.stack.pop_float();
+                    let b = self.stack.pop() as f64;
+                    let a = self.stack.pop() as f64;
                     self.stack.push_bool(a < b)
                 }
                 ByteCode::GreaterEqualInt => {
-                    let b = self.stack.pop_int();
-                    let a = self.stack.pop_int();
+                    let b = self.stack.pop();
+                    let a = self.stack.pop();
                     self.stack.push_bool(a >= b)
                 }
                 ByteCode::GreaterEqualFloat => {
-                    let b = self.stack.pop_float();
-                    let a = self.stack.pop_float();
+                    let b = self.stack.pop() as f64;
+                    let a = self.stack.pop() as f64;
                     self.stack.push_bool(a >= b)
                 }
                 ByteCode::LessEqualInt => {
-                    let b = self.stack.pop_int();
-                    let a = self.stack.pop_int();
+                    let b = self.stack.pop();
+                    let a = self.stack.pop();
                     self.stack.push_bool(a <= b)
                 }
                 ByteCode::LessEqualFloat => {
-                    let b = self.stack.pop_float();
-                    let a = self.stack.pop_float();
+                    let b = self.stack.pop() as f64;
+                    let a = self.stack.pop() as f64;
                     self.stack.push_bool(a <= b)
                 }
-                ByteCode::Equal(n) => {
-                    let b = self.stack.pop_bulk(n as usize);
-                    let a = self.stack.pop_bulk(n as usize);
+                ByteCode::Equal => {
+                    let b = self.stack.pop();
+                    let a = self.stack.pop();
                     self.stack.push_bool(a == b);
                 }
-                ByteCode::NotEqual(n) => {
-                    let b = self.stack.pop_bulk(n as usize);
-                    let a = self.stack.pop_bulk(n as usize);
+                ByteCode::NotEqual => {
+                    let b = self.stack.pop();
+                    let a = self.stack.pop();
                     self.stack.push_bool(a != b);
                 }
                 ByteCode::EqualHeap => {
@@ -393,38 +359,38 @@ impl VM {
                 ByteCode::Pop(n) => {
                     self.stack.pop_bulk(n);
                 }
-                ByteCode::DefineGlobal(constant, n) => {
+                ByteCode::DefineGlobal(constant) => {
                     let constant = self
                         .current_frame()
                         .chunk(&self.heap)
-                        .get_constant(&constant, 8);
-                    let name = self.heap.get_with_bytes(constant).as_string().to_string();
-                    let value = self.stack.pop_bulk(n as usize);
+                        .get_constant(&constant);
+                    let name = self.heap.get(&constant).as_string().to_string();
+                    let value = self.stack.pop();
                     self.globals.insert(name, value);
                 }
-                ByteCode::GetGlobal(constant, _) => {
+                ByteCode::GetGlobal(constant) => {
                     let constant = self
                         .current_frame()
                         .chunk(&self.heap)
-                        .get_constant(&constant, 8);
-                    let name = self.heap.get_with_bytes(constant).as_string().to_string();
+                        .get_constant(&constant);
+                    let name = self.heap.get(&constant).as_string().to_string();
                     if let Some(value) = self.globals.get(&name) {
-                        self.stack.push(value)
+                        self.stack.push(*value)
                     } else {
                         // TODO static analysis for variable usage
                         self.runtime_error(&format!("Undefined variable {}", name));
                         return Err(InterpretError::Runtime);
                     }
                 }
-                ByteCode::SetGlobal(constant, n) => {
+                ByteCode::SetGlobal(constant) => {
                     let constant = self
                         .current_frame()
                         .chunk(&self.heap)
-                        .get_constant(&constant, 8);
-                    let name = self.heap.get_with_bytes(constant).as_string();
-                    let value = self.stack.peek_bytes_n(n as usize);
+                        .get_constant(&constant);
+                    let name = self.heap.get(&constant).as_string();
+                    let value = self.stack.peek();
                     let already_defined =
-                        if let None = self.globals.insert(name.to_string(), value.to_vec()) {
+                        if let None = self.globals.insert(name.to_string(), value) {
                             true
                         } else {
                             false
@@ -437,17 +403,16 @@ impl VM {
                         return Err(InterpretError::Runtime);
                     }
                 }
-                ByteCode::GetLocal(index, n) => {
+                ByteCode::GetLocal(index) => {
                     let value = self
                         .stack
-                        .read_at(index + current_frame.stack_index, n as usize)
-                        .to_vec();
-                    self.stack.push(&value)
+                        .get(index + current_frame.stack_index);
+                    self.stack.push(value)
                 }
-                ByteCode::SetLocal(index, n) => {
-                    let value = self.stack.peek_bytes_n(n as usize).to_vec();
+                ByteCode::SetLocal(index) => {
+                    let value = self.stack.peek();
                     self.stack
-                        .write_at(index + current_frame.stack_index, n as usize, &value)
+                        .set(index + current_frame.stack_index, value)
                 }
                 ByteCode::JumpIfFalse(offset) => {
                     if !self.stack.peek_bool() {
@@ -461,16 +426,14 @@ impl VM {
                     current_frame.back_jump(offset);
                 }
                 ByteCode::Call(args_bytes) => {
-                    let heap_index = stack.skip_peek_bytes_8(args_bytes);
-                    let heap_index = usize::from_be_bytes(heap_index.try_into().unwrap());
-
+                    let heap_index = stack.skip_peek(args_bytes);
                     let object = self.heap.get(&heap_index);
                     if let ObjType::NativeFunction(func_obj) = &object.value {
                         let args_bytes = func_obj.arg_bytes();
                         let args = self.stack.pop_bulk(args_bytes);
-                        self.stack.push(&func_obj.exec(&args));
+                        self.stack.push_bulk(&func_obj.exec(&args));
                     } else {
-                        let frame = CallFrame::new(heap_index, self.stack.len() - (args_bytes + 8)); // To account for function object
+                        let frame = CallFrame::new(heap_index, self.stack.len() - (args_bytes + 1)); // To account for function object
 
                         #[cfg(feature = "debug-logging")]
                         frame.chunk(&self.heap).disassemble("function"); // TODO get/use function name
@@ -479,8 +442,8 @@ impl VM {
                     }
                 }
                 ByteCode::NoOp => (),
-                ByteCode::SetHeap(index, n) => {
-                    let value = self.stack.peek_bytes_n(n as usize).to_vec();
+                ByteCode::SetHeap(index) => {
+                    let value = self.stack.peek();
                     if let ObjType::Upvalue(bytes) = &mut heap.get_mut(&index).value {
                         *bytes = value
                     } else {
@@ -488,13 +451,30 @@ impl VM {
                     }
                 }
                 ByteCode::GetHeap(index) => {
-                    if let ObjType::Upvalue(bytes) = &heap.get(&index).value {
-                        self.stack.push(&bytes);
+                    if let ObjType::Upvalue(value) = &heap.get(&index).value {
+                        self.stack.push(*value);
                     } else {
                         panic!("should be upvalue")
                     }
                 }
             }
         }
+    }
+
+    pub fn allocate_string(&mut self, s: &str) -> i64 {
+        if let Some(key) = self.heap.interned_strings.get(s) {
+            *key
+        } else {
+            let key = self.allocate(Object::new(ObjType::Str(Box::new(s.to_string()))));
+            self.heap.interned_strings.insert(s.to_string(), key);
+            key
+        }
+    }
+
+    pub fn allocate(&mut self, o: Object) -> i64 {
+        #[cfg(feature = "debug-stress-gc")]
+        collect_garbage(self);
+
+        self.heap.allocate(o)
     }
 }

@@ -8,6 +8,7 @@ mod chunk;
 mod code_gen;
 mod common;
 mod compiler;
+mod gc;
 mod heap;
 mod lexer;
 mod object;

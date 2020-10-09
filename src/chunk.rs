@@ -7,7 +7,7 @@ pub enum ByteCode {
     PrintFloat,
     PrintBool,
     PrintObject,
-    Constant(u8, u8),
+    Constant(u8),
     NegateInt,
     AddInt,
     SubInt,
@@ -27,25 +27,25 @@ pub enum ByteCode {
     LessFloat,
     GreaterEqualFloat,
     LessEqualFloat,
-    Equal(u8),
-    NotEqual(u8),
+    Equal,
+    NotEqual,
     EqualHeap,
     NotEqualHeap,
     Concat,
     Pop(usize),
-    DefineGlobal(u8, u8),
-    GetGlobal(u8, u8),
-    SetGlobal(u8, u8),
-    GetLocal(usize, u8),
-    SetLocal(usize, u8),
+    DefineGlobal(u8),
+    GetGlobal(u8),
+    SetGlobal(u8),
+    GetLocal(usize),
+    SetLocal(usize),
     // Two code gap here
     JumpIfFalse(u16),
     Jump(u16),
     Loop(u16),
     Call(usize),
     NoOp,
-    SetHeap(usize, u8),
-    GetHeap(usize),
+    SetHeap(i64),
+    GetHeap(i64),
 }
 
 impl ByteCode {
@@ -77,83 +77,62 @@ impl ByteCode {
             | Self::EqualHeap
             | Self::NotEqualHeap
             | Self::Concat
+            | Self::Equal
+            | Self::NotEqual
             | Self::NoOp => 1,
-            Self::Return(_) | Self::Equal(_) | Self::NotEqual(_) => 2,
+            Self::Return(_)
+            | Self::Constant(_)
+            | Self::DefineGlobal(_)
+            | Self::GetGlobal(_)
+            | Self::SetGlobal(_)
+                => 2,
             Self::JumpIfFalse(_)
             | Self::Jump(_)
             | Self::Loop(_)
-            | Self::Constant(_, _)
-            | Self::DefineGlobal(_, _)
-            | Self::GetGlobal(_, _)
-            | Self::SetGlobal(_, _) => 3,
-            Self::Pop(_) | Self::GetHeap(_) | Self::Call(_) => 9,
-            Self::GetLocal(_, _) | Self::SetLocal(_, _) | Self::SetHeap(_, _) => 10,
+             => 3,
+            Self::Pop(_) | Self::GetHeap(_) | Self::Call(_)
+            | Self::GetLocal(_) | Self::SetLocal(_) | Self::SetHeap(_) => 9,
         }
     }
-}
-
-pub struct ChunkBuilder {
-    code: Vec<u8>,
-    constants: Vec<u8>,
-    // TODO save memory by using a run length encoding
-    lines: Vec<u32>,
 }
 
 #[derive(PartialEq, Eq)]
 pub struct Chunk {
-    data: Vec<u8>,
-    constant_idx: usize,
-    line_idx: usize,
+    code: Vec<u8>,
+    constants: Vec<i64>,
+    // TODO save memory by using a run length encoding
+    lines: Vec<u32>,
 }
 
 impl Chunk {
-    pub fn new(builder: ChunkBuilder) -> Self {
-        let constant_idx = builder.code.len();
-        let line_idx = constant_idx + builder.constants.len();
-        let mut data = builder.code;
-        data.extend_from_slice(&builder.constants);
-        for line in builder.lines.into_iter() {
-            data.extend_from_slice(&line.to_be_bytes());
-        }
-
-        Self {
-            data,
-            constant_idx,
-            line_idx,
-        }
-    }
-
-    fn code(&self) -> &[u8] {
-        &self.data[0..self.constant_idx]
-    }
-
-    fn constants(&self) -> &[u8] {
-        &self.data[self.constant_idx..self.line_idx]
-    }
-
     fn get_u8(&self, offset: usize) -> u8 {
-        *self.code().get(offset).unwrap()
+        *self.code.get(offset).unwrap()
     }
 
     fn get_u16(&self, offset: usize) -> u16 {
-        let bytes: &[u8] = &self.code()[offset..offset + 2];
+        let bytes: &[u8] = &self.code[offset..offset + 2];
         u16::from_be_bytes(bytes.try_into().unwrap())
     }
 
     fn get_usize(&self, offset: usize) -> usize {
-        let bytes: &[u8] = &self.code()[offset..offset + 8];
+        let bytes: &[u8] = &self.code[offset..offset + 8];
         usize::from_be_bytes(bytes.try_into().unwrap())
     }
 
+    fn get_i64(&self, offset: usize) -> i64 {
+        let bytes: &[u8] = &self.code[offset..offset + 8];
+        i64::from_be_bytes(bytes.try_into().unwrap())
+    }
+
     pub fn get_code(&self, offset: usize) -> ByteCode {
-        let byte = self.code().get(offset).unwrap();
+        let byte = self.code.get(offset).unwrap();
         match byte {
             0x0 => ByteCode::Return(self.get_u8(offset + 1)),
             0x1 => ByteCode::PrintInt,
             0x2 => ByteCode::PrintFloat,
             0x3 => ByteCode::PrintBool,
             0x4 => ByteCode::PrintObject,
-            0x5 => ByteCode::Constant(self.get_u8(offset + 1), self.get_u8(offset + 2)),
+            0x5 => ByteCode::Constant(self.get_u8(offset + 1)),
             0x6 => ByteCode::NegateInt,
             0x7 => ByteCode::AddInt,
             0x8 => ByteCode::SubInt,
@@ -173,46 +152,45 @@ impl Chunk {
             0x16 => ByteCode::LessFloat,
             0x17 => ByteCode::GreaterEqualFloat,
             0x18 => ByteCode::LessEqualFloat,
-            0x19 => ByteCode::Equal(self.get_u8(offset + 1)),
-            0x1a => ByteCode::NotEqual(self.get_u8(offset + 1)),
+            0x19 => ByteCode::Equal,
+            0x1a => ByteCode::NotEqual,
             0x1b => ByteCode::EqualHeap,
             0x1c => ByteCode::NotEqualHeap,
             0x1d => ByteCode::Concat,
             0x1e => ByteCode::Pop(self.get_usize(offset + 1)),
-            0x1f => ByteCode::DefineGlobal(self.get_u8(offset + 1), self.get_u8(offset + 2)),
-            0x20 => ByteCode::GetGlobal(self.get_u8(offset + 1), self.get_u8(offset + 2)),
-            0x21 => ByteCode::SetGlobal(self.get_u8(offset + 1), self.get_u8(offset + 2)),
-            0x22 => ByteCode::GetLocal(self.get_usize(offset + 1), self.get_u8(offset + 9)),
-            0x23 => ByteCode::SetLocal(self.get_usize(offset + 1), self.get_u8(offset + 9)),
+            0x1f => ByteCode::DefineGlobal(self.get_u8(offset + 1)),
+            0x20 => ByteCode::GetGlobal(self.get_u8(offset + 1)),
+            0x21 => ByteCode::SetGlobal(self.get_u8(offset + 1)),
+            0x22 => ByteCode::GetLocal(self.get_usize(offset + 1)),
+            0x23 => ByteCode::SetLocal(self.get_usize(offset + 1)),
             // Two code gap here
             0x26 => ByteCode::JumpIfFalse(self.get_u16(offset + 1)),
             0x27 => ByteCode::Jump(self.get_u16(offset + 1)),
             0x28 => ByteCode::Loop(self.get_u16(offset + 1)),
             0x29 => ByteCode::Call(self.get_usize(offset + 1)),
             0x2a => ByteCode::NoOp,
-            0x2b => ByteCode::SetHeap(self.get_usize(offset + 1), self.get_u8(offset + 9)),
-            0x2c => ByteCode::GetHeap(self.get_usize(offset + 1)),
+            0x2b => ByteCode::SetHeap(self.get_i64(offset + 1)),
+            0x2c => ByteCode::GetHeap(self.get_i64(offset + 1)),
             _ => panic!("Invalid byte code: {}", byte),
         }
     }
 
     pub fn get_line(&self, offset: usize) -> u32 {
-        let index = self.line_idx + offset * 4;
-        u32::from_be_bytes(self.data[index..index + 4].try_into().unwrap())
+        self.lines[offset]
     }
 
-    pub fn get_constant(&self, constant: &u8, length: usize) -> &[u8] {
+    pub fn get_constant(&self, constant: &u8) -> i64 {
         let idx = *constant as usize;
-        &self.constants()[idx..idx + length]
+        self.constants[idx]
     }
 
     #[cfg(feature = "debug-logging")]
     pub fn disassemble(&self, name: &str) -> () {
-        eprintln!("constants: {:?}", self.constants());
+        eprintln!("constants: {:?}", self.constants);
         eprintln!("== {} ==", name);
 
         let mut offset = 0;
-        while offset < self.code().len() {
+        while offset < self.code.len() {
             //for offset in 0..self.code.len() {
             self.disassemble_instruction(offset);
             offset += self.get_code(offset).size() as usize;
@@ -231,53 +209,10 @@ impl Chunk {
         let code = self.get_code(offset);
 
         eprint!("{:?}", self.get_code(offset));
-        let slice = &self.code()[offset..offset + (code.size() as usize)];
+        let slice = &self.code[offset..offset + (code.size() as usize)];
         eprintln!(" ({:x?})", slice);
     }
 
-    /* Can use this to save to disk
-    fn to_bytes(mut self) -> Vec<u8> {
-        self.data
-            .extend_from_slice(&self.constant_idx.to_be_bytes());
-        self.data.extend_from_slice(&self.line_idx.to_be_bytes());
-        self.data
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Self {
-        let mut data = bytes.to_vec();
-        let constant_idx_bytes = [
-            data.pop().unwrap(),
-            data.pop().unwrap(),
-            data.pop().unwrap(),
-            data.pop().unwrap(),
-            data.pop().unwrap(),
-            data.pop().unwrap(),
-            data.pop().unwrap(),
-            data.pop().unwrap(),
-        ];
-        let constant_idx = usize::from_le_bytes(constant_idx_bytes);
-
-        let line_idx_bytes = [
-            data.pop().unwrap(),
-            data.pop().unwrap(),
-            data.pop().unwrap(),
-            data.pop().unwrap(),
-            data.pop().unwrap(),
-            data.pop().unwrap(),
-            data.pop().unwrap(),
-            data.pop().unwrap(),
-        ];
-        let line_idx = usize::from_le_bytes(line_idx_bytes);
-        Self {
-            data,
-            constant_idx,
-            line_idx,
-        }
-    }
-    */
-}
-
-impl ChunkBuilder {
     pub fn new() -> Self {
         Self {
             code: Vec::new(),
@@ -314,11 +249,9 @@ impl ChunkBuilder {
                 self.code.push(0x4);
                 self.lines.push(line);
             }
-            ByteCode::Constant(arg, length) => {
+            ByteCode::Constant(arg) => {
                 self.code.push(0x5);
                 self.code.push(arg);
-                self.code.push(length);
-                self.lines.push(line);
                 self.lines.push(line);
                 self.lines.push(line);
             }
@@ -398,16 +331,12 @@ impl ChunkBuilder {
                 self.code.push(0x18);
                 self.lines.push(line);
             }
-            ByteCode::Equal(length) => {
+            ByteCode::Equal => {
                 self.code.push(0x19);
-                self.code.push(length);
-                self.lines.push(line);
                 self.lines.push(line);
             }
-            ByteCode::NotEqual(length) => {
+            ByteCode::NotEqual => {
                 self.code.push(0x1a);
-                self.code.push(length);
-                self.lines.push(line);
                 self.lines.push(line);
             }
             ByteCode::EqualHeap => {
@@ -427,41 +356,33 @@ impl ChunkBuilder {
                 self.code.extend_from_slice(&n.to_be_bytes());
                 self.lines.extend_from_slice(&[line; 9]);
             }
-            ByteCode::DefineGlobal(arg, n) => {
+            ByteCode::DefineGlobal(arg) => {
                 self.code.push(0x1f);
                 self.code.push(arg);
-                self.code.push(n);
-                self.lines.push(line);
                 self.lines.push(line);
                 self.lines.push(line);
             }
-            ByteCode::GetGlobal(arg, n) => {
+            ByteCode::GetGlobal(arg) => {
                 self.code.push(0x20);
                 self.code.push(arg);
-                self.code.push(n);
-                self.lines.push(line);
                 self.lines.push(line);
                 self.lines.push(line);
             }
-            ByteCode::SetGlobal(arg, n) => {
+            ByteCode::SetGlobal(arg) => {
                 self.code.push(0x21);
                 self.code.push(arg);
-                self.code.push(n);
-                self.lines.push(line);
                 self.lines.push(line);
                 self.lines.push(line);
             }
-            ByteCode::GetLocal(arg, n) => {
+            ByteCode::GetLocal(arg) => {
                 self.code.push(0x22);
                 self.code.extend_from_slice(&arg.to_be_bytes());
-                self.code.push(n);
-                self.lines.extend_from_slice(&[line; 10]);
+                self.lines.extend_from_slice(&[line; 9]);
             }
-            ByteCode::SetLocal(arg, n) => {
+            ByteCode::SetLocal(arg) => {
                 self.code.push(0x23);
                 self.code.extend_from_slice(&arg.to_be_bytes());
-                self.code.push(n);
-                self.lines.extend_from_slice(&[line; 10]);
+                self.lines.extend_from_slice(&[line; 9]);
             }
             // Two code gap here
             ByteCode::JumpIfFalse(arg) => {
@@ -488,11 +409,10 @@ impl ChunkBuilder {
                 self.code.push(0x2a);
                 self.lines.push(line);
             }
-            ByteCode::SetHeap(arg, n) => {
+            ByteCode::SetHeap(arg) => {
                 self.code.push(0x2b);
                 self.code.extend_from_slice(&arg.to_be_bytes());
-                self.code.push(n);
-                self.lines.extend_from_slice(&[line; 10]);
+                self.lines.extend_from_slice(&[line; 9]);
             }
             ByteCode::GetHeap(arg) => {
                 self.code.push(0x2c);
@@ -502,10 +422,10 @@ impl ChunkBuilder {
         }
     }
 
-    pub fn add_constant(&mut self, value: &[u8]) -> u8 {
-        let next_start = self.constants.len();
-        self.constants.extend_from_slice(value);
-        u8::try_from(next_start).ok().expect("Too many constants")
+    pub fn add_constant(&mut self, value: i64) -> u8 {
+        let index = self.constants.len();
+        self.constants.push(value);
+        u8::try_from(index).ok().expect("Too many constants")
     }
 
     pub fn patch_jump(&mut self, index: usize, offset: u16) -> () {

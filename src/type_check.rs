@@ -88,8 +88,8 @@ impl DataType {
             | DataType::Function {
                 return_type: _,
                 parameters: _,
-            } => 8,
-            DataType::Bool => 1,
+            }
+            | DataType::Bool => 1,
             DataType::Nil => 0,
         }
     }

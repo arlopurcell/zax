@@ -6,6 +6,8 @@ edition = "2018"
 
 [features]
 debug-logging = []
+debug-stress-gc = []
+debug-log-gc = []
 
 [dependencies]
 fnv = "1.0.3"

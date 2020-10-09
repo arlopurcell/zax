@@ -1,56 +1,58 @@
 use fnv::FnvHashMap;
 use std::convert::TryInto;
 
-use crate::object::{ObjType, Object};
+use crate::object::Object;
 
 pub struct Heap {
-    objects: FnvHashMap<usize, Object>,
-    counter: usize,
-    interned_strings: FnvHashMap<String, usize>,
+    objects: FnvHashMap<i64, Object>,
+    counter: i64,
+    pub interned_strings: FnvHashMap<String, i64>,
 }
 
 impl<'a> Heap {
     pub fn new() -> Self {
         Self {
             objects: FnvHashMap::default(),
-            counter: 0,
+            counter: i64::MIN,
             interned_strings: FnvHashMap::default(),
         }
     }
 
-    pub fn allocate_string(&mut self, s: &str) -> usize {
-        if let Some(key) = self.interned_strings.get(s) {
-            *key
-        } else {
-            let key = self.allocate(Object::new(ObjType::Str(Box::new(s.to_string()))));
-            self.interned_strings.insert(s.to_string(), key);
-            key
-        }
-    }
-
-    pub fn allocate(&mut self, o: Object) -> usize {
-        if self.objects.len() >= usize::MAX {
+    pub fn allocate(&mut self, o: Object) -> i64 {
+        if self.objects.len() >= usize::MAX >> 1 {
+            // Since only indexes with most significant bit == 1 are allowed, the max number of
+            // heap objects is half of usize::MAX
+            //TODO InterpretError::Runtime
             panic!("Heap overflow");
         }
         while self.objects.contains_key(&self.counter) {
-            self.counter = self.counter.wrapping_add(1);
+            // Mask most significant bit. we want all heap indexes to be negative so that the
+            // conservative garbage collector interprets less primitives as references
+            // This also wraps from 0 to i64::MIN
+            self.counter = (self.counter + 1) | i64::MIN;
         }
+
+        #[cfg(feature = "debug-log-gc")]
+        eprintln!("Allocate {} for {:?}", object.size(), object.print());
+
         self.objects.insert(self.counter, o);
         self.counter
     }
 
-    pub fn get(&self, idx: &usize) -> &Object {
+    pub fn get(&self, idx: &i64) -> &Object {
         self.objects.get(idx).unwrap()
     }
 
-    pub fn get_mut(&mut self, idx: &usize) -> &mut Object {
+    pub fn get_mut(&mut self, idx: &i64) -> &mut Object {
         self.objects.get_mut(idx).unwrap()
     }
 
+    /*
     pub fn get_with_bytes(&'a self, idx: &[u8]) -> &'a Object {
-        let idx = usize::from_be_bytes(idx.try_into().unwrap());
+        let idx = i64::from_be_bytes(idx.try_into().unwrap());
         self.get(&idx)
     }
+    */
 
     #[cfg(feature = "debug-logging")]
     pub fn print(&self) -> () {
@@ -60,4 +62,5 @@ impl<'a> Heap {
         }
         eprintln!();
     }
+
 }
