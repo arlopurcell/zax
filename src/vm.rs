@@ -460,13 +460,6 @@ impl VM {
                     self.stack
                         .write_at(index + current_frame.stack_index, n as usize, &value)
                 }
-                ByteCode::GetUpvalue(index, n) => {
-                    self.stack.push(self.heap.get_upvalue(current_frame.closure_heap_index, index));
-                }
-                ByteCode::SetUpvalue(index, n) => {
-                    let value = self.stack.peek_bytes_n(n as usize);
-                    heap.update_upvalue(current_frame.closure_heap_index, index, value);
-                }
                 ByteCode::JumpIfFalse(offset) => {
                     if !self.stack.peek_bool() {
                         current_frame.jump(offset);

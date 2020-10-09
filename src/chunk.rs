@@ -38,8 +38,7 @@ pub enum ByteCode {
     SetGlobal(u8, u8),
     GetLocal(usize, u8),
     SetLocal(usize, u8),
-    GetUpvalue(usize, u8),
-    SetUpvalue(usize, u8),
+    // Two code gap here
     JumpIfFalse(u16),
     Jump(u16),
     Loop(u16),
@@ -94,8 +93,6 @@ impl ByteCode {
             | Self::Call(_) => 9,
             Self::GetLocal(_, _) 
             | Self::SetLocal(_, _)
-            | Self::GetUpvalue(_, _)
-            | Self::SetUpvalue(_, _)
             | Self::SetHeap(_, _)
                 => 10,
         }
@@ -194,8 +191,7 @@ impl Chunk {
             0x21 => ByteCode::SetGlobal(self.get_u8(offset + 1), self.get_u8(offset + 2)),
             0x22 => ByteCode::GetLocal(self.get_usize(offset +  1), self.get_u8(offset + 9)),
             0x23 => ByteCode::SetLocal(self.get_usize(offset +  1), self.get_u8(offset + 9)),
-            0x24 => ByteCode::GetUpvalue(self.get_usize(offset +  1), self.get_u8(offset + 9)),
-            0x25 => ByteCode::SetUpvalue(self.get_usize(offset +  1), self.get_u8(offset + 9)),
+            // Two code gap here
             0x26 => ByteCode::JumpIfFalse(self.get_u16(offset + 1)),
             0x27 => ByteCode::Jump(self.get_u16(offset + 1)),
             0x28 => ByteCode::Loop(self.get_u16(offset + 1)),
@@ -472,18 +468,7 @@ impl ChunkBuilder {
                 self.code.push(n);
                 self.lines.extend_from_slice(&[line; 10]);
             }
-            ByteCode::GetUpvalue(arg, n) => {
-                self.code.push(0x24);
-                self.code.extend_from_slice(&arg.to_be_bytes());
-                self.code.push(n);
-                self.lines.extend_from_slice(&[line; 10]);
-            }
-            ByteCode::SetUpvalue(arg, n) => {
-                self.code.push(0x25);
-                self.code.extend_from_slice(&arg.to_be_bytes());
-                self.code.push(n);
-                self.lines.extend_from_slice(&[line; 10]);
-            }
+            // Two code gap here
             ByteCode::JumpIfFalse(arg) => {
                 self.code.push(0x26);
                 self.code.extend_from_slice(&arg.to_be_bytes());

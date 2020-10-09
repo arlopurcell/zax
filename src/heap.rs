@@ -52,32 +52,6 @@ impl<'a> Heap {
         self.get(idx)
     }
 
-    pub fn get_upvalue(&self, closure_index: usize, upvalue_index: usize) -> &[u8] {
-        let closure = self.get(closure_index);
-        if let ObjType::Closure(closure) = &closure.value {
-            let upvalue_obj = self.get(closure.upvalues[upvalue_index]);
-            if let ObjType::Upvalue(bytes) = &upvalue_obj.value {
-                &bytes
-            } else {
-                panic!("upvalue ref must be a Upvalue")
-            }
-        } else {
-            panic!("Closure ref must be a ClosureObj")
-        }
-    }
-
-    pub fn update_upvalue(&mut self, closure_index: usize, upvalue_index: usize, value: &[u8]) -> () {
-        let closure = if let ObjType::Closure(closure) = &self.get_mut(closure_index).value {
-            closure
-        } else {
-            panic!("should be closure");
-        };
-        let heap_index = closure.upvalues[upvalue_index];
-        
-        let upvalue_obj = self.get_mut(heap_index);
-        upvalue_obj.value = ObjType::Upvalue(value.to_vec());
-    }
-
     #[cfg(feature = "debug-logging")]
     pub fn print(&self) -> () {
         eprint!(" heap: ");

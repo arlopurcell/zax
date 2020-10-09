@@ -59,7 +59,6 @@ pub enum AstNodeType {
 pub enum VarLocation {
     Global,
     Local(usize),
-    Heap(NodeId),
     Upvalue(NodeId),
 }
 
@@ -157,7 +156,7 @@ impl Scope {
 
     fn hoist(&self, node: &AstNode, locations: &mut HashMap<NodeId, VarLocation>) -> () {
         if let Some((local_node_id, _)) = find_local_location(&self.locals, node.var_node_name()) {
-            locations.insert(local_node_id, VarLocation::Heap(local_node_id));
+            locations.insert(local_node_id, VarLocation::Upvalue(local_node_id));
             locations.insert(node.id, VarLocation::Upvalue(local_node_id));
         } else if let Some(node_id) = find_node(&self.upvalues, node.var_node_name()) {
             let loc = *locations.get(&node_id).expect("should be in locations map");
@@ -351,23 +350,11 @@ impl AstNode {
                             // TODO?
                             // simply allow result of rhs to remain on the stack
                         },
-                        VarLocation::Heap(node_id) => {
+                        VarLocation::Upvalue(node_id) => {
                             let heap_index = global_generator.heap.allocate(Object::new(ObjType::Upvalue(Vec::new())));
                             global_generator.upvalue_allocations.insert(node_id, heap_index);
                             generator.emit_byte(ByteCode::SetHeap(heap_index, size), self.line);
                         }
-                        VarLocation::Upvalue(node_id) => {
-                            // TODO this should never happen because upvalues only happen on
-                            // references, not declarations. maybe make this panic?
-                            // note that this keeps it on the stack too so that other locals' stack
-                            // indexes don't get thrown off
-                            let heap_index = global_generator.heap.allocate(Object::new(ObjType::Upvalue(Vec::new())));
-                            global_generator.upvalue_allocations.insert(node_id, heap_index);
-
-                            //let heap_index = global_generator.upvalue_allocations.get(&node_id).expect(&format!("Unallocated upvalue for {}", node_id));
-
-                            generator.emit_byte(ByteCode::SetUpvalue(heap_index, size), self.line);
-                        },
                         VarLocation::Global => {
                             let constant = identifier_constant(&name, global_generator.heap, generator);
                             generator.emit_byte(ByteCode::DefineGlobal(constant, size), self.line)
@@ -413,13 +400,8 @@ impl AstNode {
                         VarLocation::Local(index) => {
                             generator.emit_byte(ByteCode::GetLocal(*index, size), self.line)
                         },
-                        VarLocation::Heap(node_id) => {
-                            let heap_index = global_generator.upvalue_allocations.get(&node_id).expect("Unallocated upvalue");
-                            generator.emit_byte(ByteCode::GetHeap(*heap_index), self.line);
-                        },
                         VarLocation::Upvalue(node_id) => {
                             let heap_index = global_generator.upvalue_allocations.get(&node_id).expect("Unallocated upvalue");
-                            //generator.emit_byte(ByteCode::GetUpvalue(*heap_index, size), self.line);
                             generator.emit_byte(ByteCode::GetHeap(*heap_index), self.line);
                         },
                         VarLocation::Global => {
@@ -515,13 +497,8 @@ impl AstNode {
                         let code = match &lhs.node_type {
                             AstNodeType::Variable{name, type_annotation: _} => match global_generator.var_locations.get(&lhs.id).unwrap_or(&VarLocation::Global) {
                                 VarLocation::Local(index) => ByteCode::SetLocal(*index, size),
-                                VarLocation::Heap(node_id) => {
-                                    let heap_index = global_generator.upvalue_allocations.get(&node_id).expect("Unallocated upvalue");
-                                    ByteCode::SetHeap(*heap_index, size)
-                                }
                                 VarLocation::Upvalue(node_id) => {
                                     let heap_index = global_generator.upvalue_allocations.get(&node_id).expect("Unallocated upvalue");
-                                    //ByteCode::SetUpvalue(*heap_index, size)
                                     ByteCode::SetHeap(*heap_index, size)
                                 }
                                 VarLocation::Global => {
@@ -532,7 +509,7 @@ impl AstNode {
                             // TODO for dotted stuff, recurse
                             _ => panic!("Invalid lvalue"),
                         };
-                        lhs.generate_with_lvalue(generator, global_generator, true);
+                        lhs.generate_with_lvalue(generator, global_generator, true)?;
                         rhs.generate(generator, global_generator)?;
 
                         generator.emit_byte(code, self.line);
@@ -563,6 +540,8 @@ impl AstNode {
                     }
                     _ => panic!("Unexpected binary code gen"),
                 };
+                lhs.generate(generator, global_generator)?;
+                rhs.generate(generator, global_generator)?;
                 generator.emit_byte(code, self.line)
             }
             AstNodeType::Error => panic!("Shouldn't try to generate code for Error node"),
@@ -606,13 +585,11 @@ impl AstNode {
                 scope
             }
             AstNodeType::Block(stmts, block_bytes) => {
-                //let mut inner_scope = Scope::child(scope);
                 scope.begin_scope();
                 for s in stmts {
                     scope = s.resolve_variables(scope, global_generator);
                 }
                 *block_bytes = scope.end_scope();
-                //inner_scope.close()
                 scope
             }
             AstNodeType::DeclareStatement(lhs, rhs) => {
@@ -624,7 +601,6 @@ impl AstNode {
                 let mut inner_scope = Scope::child(scope);
 
                 for param in params {
-                    //inner_scope.add_local(param, param.data_type.as_ref().expect("variable needs data type").size());
                     inner_scope.add_local(param, param.data_type.as_ref().expect("variable needs data type").size(), &mut global_generator.var_locations);
                 }
 
@@ -633,8 +609,7 @@ impl AstNode {
                 *upvalues = upvalue_nodes.into_iter().map(|node_id| *global_generator.upvalue_allocations.get(&node_id).expect("Unallocated upvalue")).collect();
                 scope
             }
-            AstNodeType::Variable{name, type_annotation: _} => {
-                //scope.resolve(name, location);
+            AstNodeType::Variable{name: _, type_annotation: _} => {
                 scope.resolve(self, &mut global_generator.var_locations);
                 scope
             }
@@ -710,10 +685,8 @@ impl AstNode {
                 params?;
                 body.resolve_types(substitutions)?;
             }
-            AstNodeType::Variable{name, type_annotation: _} => {
-                // TODO location resolution
-            },
-            AstNodeType::IntLiteral(_)
+            AstNodeType::Variable{name: _, type_annotation: _}
+            | AstNodeType::IntLiteral(_)
             | AstNodeType::FloatLiteral(_)
             | AstNodeType::StrLiteral(_)
             | AstNodeType::BoolLiteral(_)
@@ -741,7 +714,6 @@ pub fn analyze(ast: &mut AstNode, global_generator: &mut GlobalGenerator) -> Int
             final_type_check(&ast)?;
 
             ast.resolve_variables(Scope::top(), global_generator);
-            eprintln!("var locations: {:?}", global_generator.var_locations);
 
             #[cfg(feature = "debug-logging")]
             eprintln!("{:#?}", ast);
@@ -759,5 +731,5 @@ fn find_local_location(locals: &[Local], name: &str) -> Option<(NodeId, usize)> 
 }
 
 fn find_node(nodes: &[(NodeId, String)], name: &str) -> Option<NodeId> {
-    nodes.iter().rev().find(|(node_id, node_name)| node_name == name).map(|(node_id, _)| *node_id)
+    nodes.iter().rev().find(|(_, node_name)| node_name == name).map(|(node_id, _)| *node_id)
 }
