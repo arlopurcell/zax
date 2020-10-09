@@ -4,7 +4,7 @@ use crate::chunk::ByteCode;
 use crate::code_gen::{FunctionType, ChunkGenerator, GlobalGenerator};
 use crate::common::{InterpretError, InterpretResult};
 use crate::heap::Heap;
-use crate::object::{ObjType, Object, FunctionObj, ClosureObj};
+use crate::object::{ObjType, Object, FunctionObj};
 use crate::type_check::{find_type, DataType, TypeConstraint, final_type_check, generate_substitutions};
 
 #[derive(Debug, Clone)]
@@ -45,7 +45,6 @@ pub enum AstNodeType {
         return_type: String,
         params: Vec<AstNode>,
         body: Box<AstNode>,
-        upvalues: Vec<usize>,
     },
     PrintStatement(Box<AstNode>),
     ExpressionStatement(Box<AstNode>),
@@ -193,8 +192,8 @@ impl Scope {
     }
 
 
-    fn close(self) -> (Vec<NodeId>, Scope) {
-        (self.upvalues.iter().map(|(node_id, _)| *node_id).collect(), self.enclosing.map(|enclose_box| *enclose_box).unwrap_or(Scope::top()))
+    fn close(self) -> Scope {
+        self.enclosing.map(|enclose_box| *enclose_box).unwrap_or(Scope::top())
     }
 
 }
@@ -266,7 +265,6 @@ impl AstNode {
                 return_type: _,
                 params,
                 body,
-                upvalues,
             } => {
                 let mut child_generator = ChunkGenerator::new(FunctionType::Function);
 
@@ -282,9 +280,9 @@ impl AstNode {
                 }
 
                 let chunk = child_generator.end();
-                let closure = ClosureObj::new(chunk, &name, arity, upvalues, global_generator.heap);
-                let closure_heap_index = global_generator.heap.allocate(Object::new(ObjType::Closure(Box::new(closure))));
-                generator.emit_constant_8(&closure_heap_index.to_be_bytes(), self.line)
+                let func = FunctionObj::new(&name, chunk, arity, global_generator.heap);
+                let func_heap_index = global_generator.heap.allocate(Object::new(ObjType::Function(Box::new(func))));
+                generator.emit_constant_8(&func_heap_index.to_be_bytes(), self.line)
             }
             AstNodeType::Call { target, args } => {
                 target.generate(generator, global_generator)?;
@@ -597,7 +595,7 @@ impl AstNode {
                 scope.add_local(lhs, lhs.data_type.as_ref().expect("variable needs data type").size(), &mut global_generator.var_locations);
                 rhs.resolve_variables(scope, global_generator)
             }
-            AstNodeType::FunctionDef{ name: _, return_type: _, params, body, upvalues} => {
+            AstNodeType::FunctionDef{ name: _, return_type: _, params, body} => {
                 let mut inner_scope = Scope::child(scope);
 
                 for param in params {
@@ -605,9 +603,7 @@ impl AstNode {
                 }
 
                 inner_scope = body.resolve_variables(inner_scope, global_generator);
-                let (upvalue_nodes, scope) = inner_scope.close();
-                *upvalues = upvalue_nodes.into_iter().map(|node_id| *global_generator.upvalue_allocations.get(&node_id).expect("Unallocated upvalue")).collect();
-                scope
+                inner_scope.close()
             }
             AstNodeType::Variable{name: _, type_annotation: _} => {
                 scope.resolve(self, &mut global_generator.var_locations);
@@ -676,7 +672,6 @@ impl AstNode {
                 return_type: _,
                 params,
                 body,
-                upvalues: _,
             } => {
                 let params: Result<Vec<_>, _> = params
                     .into_iter()

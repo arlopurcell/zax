@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 
 use crate::chunk::{ByteCode, Chunk, ChunkBuilder};
-use crate::object::{FunctionObj, ClosureObj};
-use crate::common::{InterpretResult, InterpretError};
 use crate::heap::Heap;
 use crate::ast::{NodeId, VarLocation};
 

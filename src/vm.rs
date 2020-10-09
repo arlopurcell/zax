@@ -5,7 +5,7 @@ use crate::chunk::{ByteCode, Chunk};
 use crate::common::{InterpretError, InterpretResult};
 use crate::compiler::compile;
 use crate::heap::Heap;
-use crate::object::{FunctionObj, ClosureObj, NativeFunctionObj, ObjType, Object};
+use crate::object::{FunctionObj, NativeFunctionObj, ObjType, Object};
 
 pub struct VM {
     stack: Stack,
@@ -18,36 +18,26 @@ struct Stack(Vec<u8>);
 
 #[derive(Debug)]
 struct CallFrame {
-    closure_heap_index: usize,
+    function_heap_index: usize,
     ip: usize,
     stack_index: usize,
 }
 
 impl CallFrame {
-    fn new(closure_heap_index: usize, stack_index: usize) -> Self {
+    fn new(function_heap_index: usize, stack_index: usize) -> Self {
         Self {
-            closure_heap_index,
+            function_heap_index,
             stack_index,
             ip: 0,
         }
     }
 
-    fn closure_obj<'a>(&self, heap: &'a Heap) -> &'a ClosureObj {
-        let object = heap.get(self.closure_heap_index);
-        if let ObjType::Closure(closure) = &object.value {
-            &closure
-        } else {
-            panic!("closure of CallFrame wasn't a ClosureObj")
-        }
-    }
-
     fn func_obj<'a>(&self, heap: &'a Heap) -> &'a FunctionObj {
-        let closure = self.closure_obj(heap);
-        let object = heap.get(closure.func_index);
+        let object = heap.get(&self.function_heap_index);
         if let ObjType::Function(func) = &object.value {
             &func
         } else {
-            panic!("func of closure of CallFrame wasn't a FunctionObj")
+            panic!("func of CallFrame wasn't a FunctionObj")
         }
     }
 
@@ -180,7 +170,7 @@ impl VM {
 
         let heap_index = self
             .heap
-            .allocate(Object::new(ObjType::Closure(Box::new(main_func))));
+            .allocate(Object::new(ObjType::Function(Box::new(main_func))));
         let frame = CallFrame::new(heap_index, 0);
         self.frames.push(frame);
 
@@ -198,8 +188,7 @@ impl VM {
         eprintln!("{}", message);
 
         for frame in self.frames.iter().rev() {
-            eprintln!("[line {:>4}] in script", frame.get_last_line(&self.heap));
-            // TODO add function name to trace
+            eprintln!("{}[line {:>4}] in script", frame.func_obj(&self.heap).name(&self.heap), frame.get_last_line(&self.heap));
         }
     }
 
@@ -209,11 +198,6 @@ impl VM {
             .heap
             .allocate(Object::new(ObjType::NativeFunction(Box::new(func_obj))));
         self.globals.insert(name, heap_index.to_be_bytes().to_vec());
-    }
-
-    fn pop_heap(&mut self) -> &Object {
-        let bytes = &(self.stack.pop_bytes_8());
-        self.heap.get_with_bytes(bytes)
     }
 
     fn pop_heap_2(&mut self) -> (&Object, &Object) {
@@ -475,7 +459,7 @@ impl VM {
                     let heap_index = stack.skip_peek_bytes_8(args_bytes);
                     let heap_index = usize::from_be_bytes(heap_index.try_into().unwrap());
 
-                    let object = self.heap.get(heap_index);
+                    let object = self.heap.get(&heap_index);
                     if let ObjType::NativeFunction(func_obj) = &object.value {
                         let args_bytes = func_obj.arg_bytes();
                         let args = self.stack.pop_bulk(args_bytes);
@@ -492,28 +476,14 @@ impl VM {
                 ByteCode::NoOp => (),
                 ByteCode::SetHeap(index, n) => {
                     let value = self.stack.peek_bytes_n(n as usize).to_vec();
-                    if let ObjType::Upvalue(bytes) = &mut heap.get_mut(index).value {
+                    if let ObjType::Upvalue(bytes) = &mut heap.get_mut(&index).value {
                         *bytes = value
                     } else {panic!("should be upvalue")}
-                    /*
-                    let value = stack.pop_bulk(n as usize);
-                    let heap_index = heap.allocate(Object::new(ObjType::Primitive(value)));
-                    stack.push(&heap_index.to_be_bytes());
-                    */
                 }
                 ByteCode::GetHeap(index) => {
-                    if let ObjType::Upvalue(bytes) = &heap.get(index).value {
+                    if let ObjType::Upvalue(bytes) = &heap.get(&index).value {
                         self.stack.push(&bytes);
                     } else {panic!("should be upvalue")}
-                    /*
-                    let heap_index = usize::from_be_bytes(stack.pop_bytes_8());
-                    let object = heap.get(heap_index);
-                    if let ObjType::Primitive(bytes) = &object.value {
-                        stack.push(bytes)
-                    } else {
-                        panic!("Can only copy primitives from the heap to the stack")
-                    }
-                    */
                 }
             }
         }

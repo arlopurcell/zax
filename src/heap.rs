@@ -39,17 +39,17 @@ impl<'a> Heap {
         self.counter
     }
 
-    pub fn get(&self, idx: usize) -> &Object {
-        self.objects.get(&idx).unwrap()
+    pub fn get(&self, idx: &usize) -> &Object {
+        self.objects.get(idx).unwrap()
     }
 
-    pub fn get_mut(&mut self, idx: usize) -> &mut Object {
-        self.objects.get_mut(&idx).unwrap()
+    pub fn get_mut(&mut self, idx: &usize) -> &mut Object {
+        self.objects.get_mut(idx).unwrap()
     }
 
     pub fn get_with_bytes(&'a self, idx: &[u8]) -> &'a Object {
         let idx = usize::from_be_bytes(idx.try_into().unwrap());
-        self.get(idx)
+        self.get(&idx)
     }
 
     #[cfg(feature = "debug-logging")]

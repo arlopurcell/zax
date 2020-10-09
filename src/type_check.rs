@@ -98,9 +98,6 @@ impl DataType {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeError {
     Mismatched, // TODO add type params
-    Unknown,
-    UnknownFunction(String),
-    ArgNumber(usize, usize),
     InvalidTypeAnnonation(String),
 }
 
@@ -108,15 +105,6 @@ impl fmt::Display for TypeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             TypeError::Mismatched => write!(f, "Mismatched types.",),
-            TypeError::Unknown => write!(f, "Unknown error occured"),
-            TypeError::UnknownFunction(func_name) => {
-                write!(f, "Unknown function name: {}", func_name)
-            }
-            TypeError::ArgNumber(expected, found) => write!(
-                f,
-                "Called function with wrong number of arguments. Expected {}, Found {}",
-                expected, found
-            ),
             TypeError::InvalidTypeAnnonation(name) => {
                 write!(f, "Invalid type annotation: {}", name,)
             }
@@ -409,7 +397,6 @@ fn check_operator_constraints(node: &AstNode) -> Result<(), TypeError> {
             return_type: _,
             params,
             body,
-            upvalues: _
         } => {
             // TODO stuff with scope and return type?
             for param in params.iter() {
@@ -612,7 +599,6 @@ fn generate_constraints<'a>(
             return_type,
             params,
             body,
-            upvalues: _,
         } => {
             let mut func_scope = Scope::new(Some(scope));
             let func_scope = &mut func_scope;

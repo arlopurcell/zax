@@ -13,7 +13,6 @@ mod lexer;
 mod object;
 mod parser;
 mod type_check;
-mod variable;
 mod vm;
 
 use crate::common::{InterpretError, InterpretResult};
@@ -31,7 +30,6 @@ fn main() -> InterpretResult {
         Err(InterpretError::Compile) => process::exit(1),
         Err(InterpretError::Runtime) => process::exit(2),
         Err(InterpretError::File) => process::exit(3),
-        Err(InterpretError::Bug) => process::exit(4),
         Ok(_) => (),
     };
     result

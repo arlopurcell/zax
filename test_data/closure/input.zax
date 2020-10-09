@@ -1,0 +1,8 @@
+fun outer() -> nil {
+  let x = "outside";
+  fun inner() -> nil{
+    print x;
+  }
+  inner();
+}
+outer();

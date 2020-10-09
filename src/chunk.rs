@@ -242,6 +242,7 @@ impl Chunk {
         eprintln!(" ({:x?})", slice);
     }
 
+    /* Can use this to save to disk
     fn to_bytes(mut self) -> Vec<u8> {
         self.data
             .extend_from_slice(&self.constant_idx.to_be_bytes());
@@ -280,6 +281,7 @@ impl Chunk {
             line_idx,
         }
     }
+    */
 }
 
 impl ChunkBuilder {

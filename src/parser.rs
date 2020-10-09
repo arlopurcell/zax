@@ -1,6 +1,6 @@
 use std::mem::swap;
 
-use crate::ast::{AstNode, AstNodeType, Operator, VarLocation};
+use crate::ast::{AstNode, AstNodeType, Operator};
 use crate::lexer::{Lexer, Token, TokenType};
 
 pub struct Parser<'a> {
@@ -279,7 +279,6 @@ impl<'a> Parser<'a> {
                 return_type: return_type.to_string(),
                 params,
                 body: Box::new(body),
-                upvalues: Vec::new(),
             },
         )
     }
@@ -593,10 +592,10 @@ enum Precedence {
     TermRight,
     FactorLeft,
     FactorRight,
-    UnaryLeft,
+    //UnaryLeft,
     UnaryRight,
     CallLeft,
     CallRight,
-    PrimaryLeft,
-    PrimaryRight,
+    //PrimaryLeft,
+    //PrimaryRight,
 }

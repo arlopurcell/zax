@@ -2,7 +2,7 @@
 pub enum InterpretError {
     Compile,
     Runtime,
-    Bug,
+//    Bug,
     File,
 }
 
