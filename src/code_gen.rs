@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
+use crate::ast::{NodeId, VarLocation};
 use crate::chunk::{ByteCode, Chunk, ChunkBuilder};
 use crate::heap::Heap;
-use crate::ast::{NodeId, VarLocation};
 
 pub struct GlobalGenerator<'a> {
     pub heap: &'a mut Heap,
@@ -10,9 +10,9 @@ pub struct GlobalGenerator<'a> {
     pub var_locations: HashMap<NodeId, VarLocation>,
 }
 
-impl <'a> GlobalGenerator<'a> {
+impl<'a> GlobalGenerator<'a> {
     pub fn new(heap: &'a mut Heap) -> Self {
-        Self{
+        Self {
             heap,
             upvalue_allocations: HashMap::new(),
             var_locations: HashMap::new(),
@@ -103,5 +103,4 @@ impl ChunkGenerator {
         &mut self.emit_byte(ByteCode::Return(0), 0);
         Chunk::new(self.chunk_builder)
     }
-
 }

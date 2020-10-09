@@ -1,10 +1,10 @@
-use crate::code_gen::{FunctionType, ChunkGenerator, GlobalGenerator};
+use crate::ast::analyze;
+use crate::code_gen::{ChunkGenerator, FunctionType, GlobalGenerator};
 use crate::common::InterpretError;
 use crate::heap::Heap;
 use crate::lexer::Lexer;
 use crate::object::FunctionObj;
 use crate::parser::Parser;
-use crate::ast::analyze;
 
 pub fn compile(source: &str, heap: &mut Heap) -> Result<FunctionObj, InterpretError> {
     let bytes: Vec<_> = source.bytes().collect();

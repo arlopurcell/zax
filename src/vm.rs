@@ -167,7 +167,6 @@ impl VM {
     pub fn interpret(&mut self, source: &str) -> InterpretResult {
         let main_func = compile(source, &mut self.heap)?;
 
-
         let heap_index = self
             .heap
             .allocate(Object::new(ObjType::Function(Box::new(main_func))));
@@ -188,7 +187,11 @@ impl VM {
         eprintln!("{}", message);
 
         for frame in self.frames.iter().rev() {
-            eprintln!("{}[line {:>4}] in script", frame.func_obj(&self.heap).name(&self.heap), frame.get_last_line(&self.heap));
+            eprintln!(
+                "{}[line {:>4}] in script",
+                frame.func_obj(&self.heap).name(&self.heap),
+                frame.get_last_line(&self.heap)
+            );
         }
     }
 
@@ -262,9 +265,11 @@ impl VM {
                     let bytes = &(self.stack.pop_bytes_8());
                     let value = heap.get_with_bytes(bytes);
                     println!("{}", value.print(&heap))
-                },
+                }
                 ByteCode::Constant(constant, n) => {
-                    let constant = current_frame.chunk(&self.heap).get_constant(&constant, n as usize);
+                    let constant = current_frame
+                        .chunk(&self.heap)
+                        .get_constant(&constant, n as usize);
                     stack.push(constant)
                 }
                 ByteCode::NegateInt => {
@@ -418,12 +423,12 @@ impl VM {
                         .get_constant(&constant, 8);
                     let name = self.heap.get_with_bytes(constant).as_string();
                     let value = self.stack.peek_bytes_n(n as usize);
-                    let already_defined = if let None = self.globals.insert(name.to_string(), value.to_vec())
-                    {
-                        true
-                    } else {
-                        false
-                    };
+                    let already_defined =
+                        if let None = self.globals.insert(name.to_string(), value.to_vec()) {
+                            true
+                        } else {
+                            false
+                        };
                     if already_defined {
                         // TODO static analysis for variable usage
                         // It was already defined
@@ -478,12 +483,16 @@ impl VM {
                     let value = self.stack.peek_bytes_n(n as usize).to_vec();
                     if let ObjType::Upvalue(bytes) = &mut heap.get_mut(&index).value {
                         *bytes = value
-                    } else {panic!("should be upvalue")}
+                    } else {
+                        panic!("should be upvalue")
+                    }
                 }
                 ByteCode::GetHeap(index) => {
                     if let ObjType::Upvalue(bytes) = &heap.get(&index).value {
                         self.stack.push(&bytes);
-                    } else {panic!("should be upvalue")}
+                    } else {
+                        panic!("should be upvalue")
+                    }
                 }
             }
         }

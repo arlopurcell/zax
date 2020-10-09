@@ -78,23 +78,16 @@ impl ByteCode {
             | Self::NotEqualHeap
             | Self::Concat
             | Self::NoOp => 1,
-            Self::Return(_)
-            | Self::Equal(_)
-            | Self::NotEqual(_)
-            => 2,
-            Self::JumpIfFalse(_) | Self::Jump(_) | Self::Loop(_) 
+            Self::Return(_) | Self::Equal(_) | Self::NotEqual(_) => 2,
+            Self::JumpIfFalse(_)
+            | Self::Jump(_)
+            | Self::Loop(_)
             | Self::Constant(_, _)
             | Self::DefineGlobal(_, _)
             | Self::GetGlobal(_, _)
-            | Self::SetGlobal(_, _)
-                => 3,
-            | Self::Pop(_)
-            | Self::GetHeap(_)
-            | Self::Call(_) => 9,
-            Self::GetLocal(_, _) 
-            | Self::SetLocal(_, _)
-            | Self::SetHeap(_, _)
-                => 10,
+            | Self::SetGlobal(_, _) => 3,
+            Self::Pop(_) | Self::GetHeap(_) | Self::Call(_) => 9,
+            Self::GetLocal(_, _) | Self::SetLocal(_, _) | Self::SetHeap(_, _) => 10,
         }
     }
 }
@@ -189,8 +182,8 @@ impl Chunk {
             0x1f => ByteCode::DefineGlobal(self.get_u8(offset + 1), self.get_u8(offset + 2)),
             0x20 => ByteCode::GetGlobal(self.get_u8(offset + 1), self.get_u8(offset + 2)),
             0x21 => ByteCode::SetGlobal(self.get_u8(offset + 1), self.get_u8(offset + 2)),
-            0x22 => ByteCode::GetLocal(self.get_usize(offset +  1), self.get_u8(offset + 9)),
-            0x23 => ByteCode::SetLocal(self.get_usize(offset +  1), self.get_u8(offset + 9)),
+            0x22 => ByteCode::GetLocal(self.get_usize(offset + 1), self.get_u8(offset + 9)),
+            0x23 => ByteCode::SetLocal(self.get_usize(offset + 1), self.get_u8(offset + 9)),
             // Two code gap here
             0x26 => ByteCode::JumpIfFalse(self.get_u16(offset + 1)),
             0x27 => ByteCode::Jump(self.get_u16(offset + 1)),

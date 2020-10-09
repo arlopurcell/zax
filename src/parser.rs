@@ -234,7 +234,10 @@ impl<'a> Parser<'a> {
         AstNode::new(
             self.id(),
             self.previous.line,
-            AstNodeType::Variable{name: var_name.to_string(), type_annotation},
+            AstNodeType::Variable {
+                name: var_name.to_string(),
+                type_annotation,
+            },
         )
     }
 
@@ -418,7 +421,10 @@ impl<'a> Parser<'a> {
         AstNode::new(
             self.id(),
             self.previous.line,
-            AstNodeType::Variable{name: self.previous.source.to_string(), type_annotation: None},
+            AstNodeType::Variable {
+                name: self.previous.source.to_string(),
+                type_annotation: None,
+            },
         )
     }
 

@@ -48,12 +48,15 @@ impl Object {
     }
 }
 
-
 impl ObjType {
     pub fn print(&self, heap: &Heap) -> String {
         match self {
             Self::Str(s) => format!("\"{}\"", s),
-            Self::Function(func) => format!("fun {} ({})", heap.get(&func.name_index).print(heap), func.arity),
+            Self::Function(func) => format!(
+                "fun {} ({})",
+                heap.get(&func.name_index).print(heap),
+                func.arity
+            ),
             Self::NativeFunction(func) => format!("Native Function {:?}", func),
             Self::Upvalue(value) => format!("Upvalue {:?}", value),
             Self::Nil => "nil".to_string(),
