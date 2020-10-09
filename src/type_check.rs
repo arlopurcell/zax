@@ -400,15 +400,16 @@ fn check_operator_constraints(node: &AstNode) -> Result<(), TypeError> {
             check_operator_constraints(loop_block)?;
             check_type(condition, &DataType::Bool)
         }
-        AstNodeType::Variable{name: _, type_annotation: _, location: _} => {
+        AstNodeType::Variable{name: _, type_annotation: _} => {
             // TODO?
             Ok(())
         }
         AstNodeType::FunctionDef {
+            name: _,
             return_type: _,
             params,
             body,
-            hoisted: _
+            upvalues: _
         } => {
             // TODO stuff with scope and return type?
             for param in params.iter() {
@@ -542,7 +543,7 @@ fn generate_constraints<'a>(
                 TypeConstraint::new(TCSide::Expr(lhs.id), TCSide::Expr(rhs.id)),
             ];
             match &lhs.node_type {
-                AstNodeType::Variable{name, type_annotation, location: _} => {
+                AstNodeType::Variable{name, type_annotation} => {
                     scope.insert(&name, TCSide::Expr(rhs.id));
                     if let Some(type_annotation) = type_annotation {
                         let var_type = TCNodeType::try_from(&type_annotation)?;
@@ -588,7 +589,7 @@ fn generate_constraints<'a>(
             constraints.append(&mut generate_constraints(loop_block, scope)?);
             Ok(constraints)
         }
-        AstNodeType::Variable{name, type_annotation, location: _} => {
+        AstNodeType::Variable{name, type_annotation} => {
             let mut constraints = if let Some(tc_side) = scope.get(name) {
                 vec![TypeConstraint::new(TCSide::Expr(node.id), tc_side)]
             } else {
@@ -607,10 +608,11 @@ fn generate_constraints<'a>(
             Ok(constraints)
         }
         AstNodeType::FunctionDef {
+            name: _,
             return_type,
             params,
             body,
-            hoisted: _
+            upvalues: _,
         } => {
             let mut func_scope = Scope::new(Some(scope));
             let func_scope = &mut func_scope;
@@ -619,7 +621,7 @@ fn generate_constraints<'a>(
             for param in params.iter() {
                 constraints.append(&mut generate_constraints(param, func_scope)?);
                 match &param.node_type {
-                    AstNodeType::Variable{name, type_annotation, location: _} => {
+                    AstNodeType::Variable{name, type_annotation} => {
                         func_scope.insert(&name, TCSide::Expr(param.id));
                         if let Some(type_annotation) = type_annotation {
                             let param_type = TCNodeType::try_from(&type_annotation)?;

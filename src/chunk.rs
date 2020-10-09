@@ -45,8 +45,8 @@ pub enum ByteCode {
     Loop(u16),
     Call(usize),
     NoOp,
-    ToHeap(u8),
-    GetHeap,
+    SetHeap(usize, u8),
+    GetHeap(usize),
 }
 
 impl ByteCode {
@@ -78,12 +78,10 @@ impl ByteCode {
             | Self::EqualHeap
             | Self::NotEqualHeap
             | Self::Concat
-            | Self::GetHeap
             | Self::NoOp => 1,
             Self::Return(_)
             | Self::Equal(_)
             | Self::NotEqual(_)
-            | Self::ToHeap(_)
             => 2,
             Self::JumpIfFalse(_) | Self::Jump(_) | Self::Loop(_) 
             | Self::Constant(_, _)
@@ -92,11 +90,13 @@ impl ByteCode {
             | Self::SetGlobal(_, _)
                 => 3,
             | Self::Pop(_)
+            | Self::GetHeap(_)
             | Self::Call(_) => 9,
             Self::GetLocal(_, _) 
             | Self::SetLocal(_, _)
             | Self::GetUpvalue(_, _)
             | Self::SetUpvalue(_, _)
+            | Self::SetHeap(_, _)
                 => 10,
         }
     }
@@ -201,8 +201,8 @@ impl Chunk {
             0x28 => ByteCode::Loop(self.get_u16(offset + 1)),
             0x29 => ByteCode::Call(self.get_usize(offset + 1)),
             0x2a => ByteCode::NoOp,
-            0x2b => ByteCode::ToHeap(self.get_u8(offset + 1)),
-            0x2c => ByteCode::GetHeap,
+            0x2b => ByteCode::SetHeap(self.get_usize(offset + 1), self.get_u8(offset + 9)),
+            0x2c => ByteCode::GetHeap(self.get_usize(offset + 1)),
             _ => panic!("Invalid byte code: {}", byte),
         }
     }
@@ -508,15 +508,16 @@ impl ChunkBuilder {
                 self.code.push(0x2a);
                 self.lines.push(line);
             }
-            ByteCode::ToHeap(length) => {
+            ByteCode::SetHeap(arg, n) => {
                 self.code.push(0x2b);
-                self.code.push(length);
-                self.lines.push(line);
-                self.lines.push(line);
+                self.code.extend_from_slice(&arg.to_be_bytes());
+                self.code.push(n);
+                self.lines.extend_from_slice(&[line; 10]);
             }
-            ByteCode::GetHeap => {
+            ByteCode::GetHeap(arg) => {
                 self.code.push(0x2c);
-                self.lines.push(line);
+                self.code.extend_from_slice(&arg.to_be_bytes());
+                self.lines.extend_from_slice(&[line; 9]);
             }
         }
     }

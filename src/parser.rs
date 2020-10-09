@@ -234,24 +234,25 @@ impl<'a> Parser<'a> {
         AstNode::new(
             self.id(),
             self.previous.line,
-            AstNodeType::Variable{name: var_name.to_string(), type_annotation, location: VarLocation::Global},
+            AstNodeType::Variable{name: var_name.to_string(), type_annotation},
         )
     }
 
     fn fun_declaration(&mut self) -> AstNode {
         self.consume(TokenType::Identifier, "Expect function name");
-        let name = self.variable();
+        let name = self.previous.source;
+        let var = self.variable();
         let line = self.previous.line;
-        let func = self.function();
+        let func = self.function(name);
 
         AstNode::new(
             self.id(),
             line,
-            AstNodeType::DeclareStatement(Box::new(name), Box::new(func)),
+            AstNodeType::DeclareStatement(Box::new(var), Box::new(func)),
         )
     }
 
-    fn function(&mut self) -> AstNode {
+    fn function(&mut self, name: &str) -> AstNode {
         self.consume(
             TokenType::LeftParen,
             "Expect '(' before function parameters.",
@@ -274,10 +275,11 @@ impl<'a> Parser<'a> {
             self.id(),
             line,
             AstNodeType::FunctionDef {
+                name: name.to_string(),
                 return_type: return_type.to_string(),
                 params,
                 body: Box::new(body),
-                hoisted: 0,
+                upvalues: Vec::new(),
             },
         )
     }
@@ -417,7 +419,7 @@ impl<'a> Parser<'a> {
         AstNode::new(
             self.id(),
             self.previous.line,
-            AstNodeType::Variable{name: self.previous.source.to_string(), type_annotation: None, location: VarLocation::Global},
+            AstNodeType::Variable{name: self.previous.source.to_string(), type_annotation: None},
         )
     }
 

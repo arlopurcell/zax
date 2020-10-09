@@ -16,6 +16,7 @@ pub struct VM {
 
 struct Stack(Vec<u8>);
 
+#[derive(Debug)]
 struct CallFrame {
     closure_heap_index: usize,
     ip: usize,
@@ -113,10 +114,6 @@ impl Stack {
 
     fn peek_bytes_n(&self, n: usize) -> &[u8] {
         &self.0[self.0.len() - n..]
-    }
-
-    fn peek_bytes_8(&self) -> &[u8] {
-        &self.0[self.0.len() - 8..]
     }
 
     fn pop_bool(&mut self) -> bool {
@@ -227,7 +224,7 @@ impl VM {
         (o1, o2)
     }
 
-    fn push_string(&mut self, val: String) -> () {
+    fn push_string(&mut self, val: &str) -> () {
         let heap_index = self.heap.allocate_string(val);
         self.stack.push(&heap_index.to_be_bytes())
     }
@@ -246,6 +243,10 @@ impl VM {
             #[cfg(feature = "debug-logging")]
             {
                 eprintln!();
+                current_frame
+                    .chunk(&heap)
+                    .disassemble_instruction(current_frame.ip);
+                eprintln!("{:?}", current_frame);
                 eprint!(" stack: ");
                 for (index, slot) in stack.0.iter().enumerate() {
                     if index == current_frame.stack_index {
@@ -255,9 +256,6 @@ impl VM {
                 }
                 eprintln!();
                 heap.print();
-                current_frame
-                    .chunk(&heap)
-                    .disassemble_instruction(current_frame.ip);
             }
 
             let bc = current_frame.get_code(&heap);
@@ -401,7 +399,7 @@ impl VM {
                     let (a, b) = self.pop_heap_2();
                     let mut result = a.as_string().to_string();
                     result.push_str(b.as_string());
-                    self.push_string(result);
+                    self.push_string(&result);
                 }
                 ByteCode::Pop(n) => {
                     self.stack.pop_bulk(n);
@@ -463,15 +461,11 @@ impl VM {
                         .write_at(index + current_frame.stack_index, n as usize, &value)
                 }
                 ByteCode::GetUpvalue(index, n) => {
-                    self.stack.push(&self.heap.get_upvalue(current_frame.closure_heap_index, index).to_be_bytes());
+                    self.stack.push(self.heap.get_upvalue(current_frame.closure_heap_index, index));
                 }
                 ByteCode::SetUpvalue(index, n) => {
-                    //let mut closure = current_frame.closure_obj(&heap);
-                    //let closure = &mut closure;
                     let value = self.stack.peek_bytes_n(n as usize);
-                    //closure.update_upvalue(index, value, heap);
                     heap.update_upvalue(current_frame.closure_heap_index, index, value);
-                    //self.heap.get_mut(index).update(value);
                 }
                 ByteCode::JumpIfFalse(offset) => {
                     if !self.stack.peek_bool() {
@@ -503,12 +497,22 @@ impl VM {
                     }
                 }
                 ByteCode::NoOp => (),
-                ByteCode::ToHeap(n) => {
+                ByteCode::SetHeap(index, n) => {
+                    let value = self.stack.peek_bytes_n(n as usize).to_vec();
+                    if let ObjType::Upvalue(bytes) = &mut heap.get_mut(index).value {
+                        *bytes = value
+                    } else {panic!("should be upvalue")}
+                    /*
                     let value = stack.pop_bulk(n as usize);
                     let heap_index = heap.allocate(Object::new(ObjType::Primitive(value)));
                     stack.push(&heap_index.to_be_bytes());
+                    */
                 }
-                ByteCode::GetHeap => {
+                ByteCode::GetHeap(index) => {
+                    if let ObjType::Upvalue(bytes) = &heap.get(index).value {
+                        self.stack.push(&bytes);
+                    } else {panic!("should be upvalue")}
+                    /*
                     let heap_index = usize::from_be_bytes(stack.pop_bytes_8());
                     let object = heap.get(heap_index);
                     if let ObjType::Primitive(bytes) = &object.value {
@@ -516,6 +520,7 @@ impl VM {
                     } else {
                         panic!("Can only copy primitives from the heap to the stack")
                     }
+                    */
                 }
             }
         }

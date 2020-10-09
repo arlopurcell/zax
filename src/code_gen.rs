@@ -1,8 +1,28 @@
+use std::collections::HashMap;
+
 use crate::chunk::{ByteCode, Chunk, ChunkBuilder};
 use crate::object::{FunctionObj, ClosureObj};
 use crate::common::{InterpretResult, InterpretError};
+use crate::heap::Heap;
+use crate::ast::{NodeId, VarLocation};
 
-pub struct Generator {
+pub struct GlobalGenerator<'a> {
+    pub heap: &'a mut Heap,
+    pub upvalue_allocations: HashMap<NodeId, usize>,
+    pub var_locations: HashMap<NodeId, VarLocation>,
+}
+
+impl <'a> GlobalGenerator<'a> {
+    pub fn new(heap: &'a mut Heap) -> Self {
+        Self{
+            heap,
+            upvalue_allocations: HashMap::new(),
+            var_locations: HashMap::new(),
+        }
+    }
+}
+
+pub struct ChunkGenerator {
     chunk_builder: ChunkBuilder,
     pub func_type: FunctionType,
 }
@@ -13,15 +33,7 @@ pub enum FunctionType {
     Script,
 }
 
-#[derive(Debug)]
-struct Local {
-    name: String,
-    depth: usize,
-    index: usize,
-    size: u8,
-}
-
-impl Generator {
+impl ChunkGenerator {
     pub fn new(func_type: FunctionType) -> Self {
         // TODO accept function name as argument for debugging
         Self {

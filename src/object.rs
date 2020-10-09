@@ -17,12 +17,13 @@ pub enum ObjType {
     Function(Box<FunctionObj>),
     NativeFunction(Box<NativeFunctionObj>),
     Closure(Box<ClosureObj>),
-    Primitive(Vec<u8>),
+    Upvalue(Vec<u8>), // TODO keep on stack until hoist is required?
     Nil,
 }
 
 #[derive(PartialEq, Eq)]
 pub struct FunctionObj {
+    name_index: usize,
     pub arity: u8,
     pub chunk: Chunk,
     //pub name: String,
@@ -31,7 +32,7 @@ pub struct FunctionObj {
 #[derive(PartialEq, Eq)]
 pub struct ClosureObj {
     pub func_index: usize,
-    pub upvalue_indexes: Vec<usize>,
+    pub upvalues: Vec<usize>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -61,19 +62,20 @@ impl ObjType {
     pub fn print(&self, heap: &Heap) -> String {
         match self {
             Self::Str(s) => format!("\"{}\"", s),
-            Self::Function(func) => format!("Function {}", func),
+            Self::Function(func) => format!("fun {} ({})", heap.get(func.name_index).print(heap), func.arity),
             Self::NativeFunction(func) => format!("Native Function {:?}", func),
-            Self::Closure(closure) => format!("Closure({}, upvalue_indexes: {:?})", heap.get(closure.func_index).print(heap), closure.upvalue_indexes),
-            Self::Primitive(value) => format!("Primitive {:?}", value),
+            Self::Closure(closure) => format!("Closure({}, upvalue_indexes: {:?})", heap.get(closure.func_index).print(heap), closure.upvalues),
+            Self::Upvalue(value) => format!("Upvalue {:?}", value),
             Self::Nil => "nil".to_string(),
         }
     }
 }
 
 impl FunctionObj {
-    // TODO fix this
-    pub fn new(chunk: Chunk, arity: u8) -> Self {
+    pub fn new(name: &str, chunk: Chunk, arity: u8, heap: &mut Heap) -> Self {
+        let name_index = heap.allocate_string(&name);
         Self {
+            name_index,
             arity,
             chunk,
             //name: "".to_string(),
@@ -89,12 +91,12 @@ impl fmt::Display for FunctionObj {
 }
 
 impl ClosureObj {
-    // TODO function name
-    pub fn new(chunk:Chunk, arity: u8, upvalue_count: u8, heap: &mut Heap) -> Self {
-        let func_index = heap.allocate(Object::new(ObjType::Function(Box::new(FunctionObj::new(chunk, arity)))));
+    pub fn new(chunk:Chunk, name: &str, arity: u8, upvalues: Vec<usize>, heap: &mut Heap) -> Self {
+        let func = Object::new(ObjType::Function(Box::new(FunctionObj::new(name, chunk, arity, heap))));
+        let func_index = heap.allocate(func);
         Self {
             func_index,
-            upvalue_indexes: (0..upvalue_count).map(|_| heap.allocate(Object::new(ObjType::Nil))).collect(),
+            upvalues,
         }
     }
 }
