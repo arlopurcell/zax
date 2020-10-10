@@ -1,8 +1,6 @@
 use crate::ast::analyze;
-use crate::code_gen::{ChunkGenerator, FunctionType};
 use crate::common::{InterpretError, InterpretResult};
 use crate::lexer::Lexer;
-use crate::object::FunctionObj;
 use crate::parser::Parser;
 use crate::vm::VM;
 

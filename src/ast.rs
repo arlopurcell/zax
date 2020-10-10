@@ -294,7 +294,7 @@ impl AstNode {
                 let name_index = vm.allocate_string(&name);
                 // put on stack to avoid GCing
                 vm.stack.push(name_index);
-                let func = FunctionObj::empty(name_index, arity, vm);
+                let func = FunctionObj::empty(name_index, arity);
 
                 let heap_index = vm.allocate(Object::new(ObjType::Function(Box::new(func))));
 

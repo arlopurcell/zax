@@ -20,6 +20,10 @@ pub struct VM {
     pub upvalue_allocations: HashMap<NodeId, i64>,
     pub var_locations: HashMap<NodeId, VarLocation>,
     pub chunk_generators: Vec<ChunkGenerator>,
+
+    // GC bookkeeping
+    pub bytes_allocated: usize,
+    pub next_gc: usize,
 }
 
 pub struct Stack(pub Vec<i64>);
@@ -144,6 +148,9 @@ impl VM {
             upvalue_allocations: HashMap::new(),
             var_locations: HashMap::new(),
             chunk_generators: Vec::new(),
+
+            bytes_allocated: 0,
+            next_gc: 1024 * 1024, // arbitrary
         };
 
         for f in NativeFunctionObj::all() {
@@ -168,7 +175,7 @@ impl VM {
         let empty_str_index = self.allocate_string("");
         // put on stack to avoid GCing
         self.stack.push(empty_str_index);
-        let main_func = FunctionObj::empty(empty_str_index, 0, self);
+        let main_func = FunctionObj::empty(empty_str_index, 0);
 
         let heap_index = self.allocate(Object::new(ObjType::Function(Box::new(main_func))));
         let frame = CallFrame::new(heap_index, 0);
@@ -191,11 +198,6 @@ impl VM {
 
     fn current_frame(&self) -> &CallFrame {
         &self.frames[self.frames.len() - 1]
-    }
-
-    fn current_frame_mut(&mut self) -> &mut CallFrame {
-        let last_index = self.frames.len() - 1;
-        &mut self.frames[last_index]
     }
 
     fn runtime_error(&self, message: &str) -> () {
@@ -240,6 +242,9 @@ impl VM {
                 upvalue_allocations: _,
                 var_locations: _,
                 chunk_generators: _,
+
+                bytes_allocated: _,
+                next_gc: _,
             } = self;
             let last_index = frames.len() - 1;
             let current_frame = &mut frames[last_index];
@@ -520,6 +525,11 @@ impl VM {
     pub fn allocate(&mut self, o: Object) -> i64 {
         #[cfg(feature = "debug-stress-gc")]
         collect_garbage(self);
+
+        self.bytes_allocated += o.size();
+        if self.bytes_allocated > self.next_gc {
+            collect_garbage(self);
+        }
 
         self.heap.allocate(o)
     }

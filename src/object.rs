@@ -4,7 +4,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::chunk::Chunk;
 use crate::heap::Heap;
-use crate::vm::VM;
 
 #[derive(PartialEq, Eq, Debug)]
 pub struct Object {
@@ -85,23 +84,14 @@ impl ObjType {
             Self::Str(s) => s.bytes().len(),
             Self::Function(_) => size_of::<FunctionObj>(),
             Self::NativeFunction(_) => size_of::<FunctionObj>(),
-            Self::Upvalue(bytes) => size_of::<i64>(),
+            Self::Upvalue(_) => size_of::<i64>(),
             Self::Nil => 0,
         }
     }
 }
 
 impl FunctionObj {
-    pub fn new(name_index: i64, chunk: Chunk, arity: u8, vm: &mut VM) -> Self {
-        Self {
-            name_index,
-            arity,
-            chunk,
-            //name: "".to_string(),
-        }
-    }
-
-    pub fn empty(name_index: i64, arity: u8, vm: &mut VM) -> Self {
+    pub fn empty(name_index: i64, arity: u8) -> Self {
         Self {
             name_index,
             arity,

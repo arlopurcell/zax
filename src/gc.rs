@@ -6,15 +6,27 @@ use crate::vm::VM;
 
 pub fn collect_garbage(vm: &mut VM) -> () {
     #[cfg(feature = "debug-log-gc")]
-    eprintln!("-- gc begin");
+    {
+        eprintln!("-- gc begin");
+        let size_before = vm.bytes_allocated;
+    }
 
     let gray_stack = mark_roots(vm);
     trace_refs(gray_stack, &mut vm.heap);
     sweep_interned(&mut vm.heap);
-    sweep(&mut vm.heap);
+    sweep(vm);
 
     #[cfg(feature = "debug-log-gc")]
-    eprintln!("-- gc end");
+    {
+        eprintln!("-- gc end");
+        eprintln!(
+            "    collected {} bytes (from {} to {}) next at {}",
+            size_before - vm.bytes_allocated,
+            size_before,
+            vm.bytes_allocated,
+            vm.next_gc
+        );
+    }
 }
 
 fn mark_roots(vm: &mut VM) -> Vec<i64> {
@@ -30,9 +42,7 @@ fn mark_roots(vm: &mut VM) -> Vec<i64> {
             vm.chunk_generators
                 .iter()
                 //.map(|gen| gen.chunk.constants.iter())
-                .map(|gen| {
-                    gen.chunk.constants.iter()
-                })
+                .map(|gen| gen.chunk.constants.iter())
                 .flatten(),
         )
     {
@@ -102,9 +112,13 @@ fn sweep_interned(heap: &mut Heap) {
         .retain(|_, ref_idx| objects.get(ref_idx).unwrap().marked)
 }
 
-fn sweep(heap: &mut Heap) {
-    heap.objects.retain(|_, object| object.marked);
-    heap.objects
-        .values_mut()
-        .for_each(|object| object.marked = false);
+fn sweep(vm: &mut VM) {
+    vm.heap.objects.retain(|_, object| object.marked);
+    let bytes_allocated = &mut vm.bytes_allocated;
+    *bytes_allocated = 0;
+    vm.heap.objects.values_mut().for_each(|object| {
+        object.marked = false;
+        *bytes_allocated += object.size();
+    });
+    vm.next_gc = vm.bytes_allocated * 2; // arbitrary grow factor
 }

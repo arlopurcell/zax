@@ -1,5 +1,4 @@
 use fnv::FnvHashMap;
-use std::convert::TryInto;
 
 use crate::object::Object;
 
@@ -55,6 +54,7 @@ impl<'a> Heap {
         self.objects.get_mut(idx)
     }
 
+    #[cfg(feature = "debug-log-gc")]
     pub fn print_object(&self, idx: &i64) -> String {
         let object = self.get(idx);
         object.print(self)
