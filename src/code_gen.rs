@@ -1,27 +1,7 @@
-use std::collections::HashMap;
-
-use crate::ast::{NodeId, VarLocation};
 use crate::chunk::{ByteCode, Chunk};
-use crate::vm::VM;
-
-pub struct GlobalGenerator<'a> {
-    pub vm: &'a mut VM,
-    pub upvalue_allocations: HashMap<NodeId, i64>,
-    pub var_locations: HashMap<NodeId, VarLocation>,
-}
-
-impl<'a> GlobalGenerator<'a> {
-    pub fn new(vm: &'a mut VM) -> Self {
-        Self {
-            vm,
-            upvalue_allocations: HashMap::new(),
-            var_locations: HashMap::new(),
-        }
-    }
-}
 
 pub struct ChunkGenerator {
-    chunk: Chunk,
+    pub chunk: Chunk,
     pub func_type: FunctionType,
 }
 

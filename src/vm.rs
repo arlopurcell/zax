@@ -1,24 +1,32 @@
 use std::collections::HashMap;
-use std::convert::TryInto;
 
+use crate::ast::{NodeId, VarLocation};
 use crate::chunk::{ByteCode, Chunk};
+use crate::code_gen::ChunkGenerator;
+use crate::code_gen::FunctionType;
 use crate::common::{InterpretError, InterpretResult};
 use crate::compiler::compile;
+use crate::gc::collect_garbage;
 use crate::heap::Heap;
 use crate::object::{FunctionObj, NativeFunctionObj, ObjType, Object};
 
 pub struct VM {
-    stack: Stack,
-    heap: Heap,
-    globals: HashMap<String, i64>,
-    frames: Vec<CallFrame>,
+    pub stack: Stack,
+    pub heap: Heap,
+    pub globals: HashMap<String, i64>,
+    pub frames: Vec<CallFrame>,
+
+    // Compile time stuff
+    pub upvalue_allocations: HashMap<NodeId, i64>,
+    pub var_locations: HashMap<NodeId, VarLocation>,
+    pub chunk_generators: Vec<ChunkGenerator>,
 }
 
-struct Stack(Vec<i64>);
+pub struct Stack(pub Vec<i64>);
 
 #[derive(Debug)]
-struct CallFrame {
-    function_heap_index: i64,
+pub struct CallFrame {
+    pub function_heap_index: i64,
     ip: usize,
     stack_index: usize,
 }
@@ -36,6 +44,15 @@ impl CallFrame {
         let object = heap.get(&self.function_heap_index);
         if let ObjType::Function(func) = &object.value {
             &func
+        } else {
+            panic!("func of CallFrame wasn't a FunctionObj")
+        }
+    }
+
+    fn func_obj_mut<'a>(&mut self, heap: &'a mut Heap) -> &'a mut FunctionObj {
+        let object = heap.get_mut(&self.function_heap_index);
+        if let ObjType::Function(func) = &mut object.value {
+            func
         } else {
             panic!("func of CallFrame wasn't a FunctionObj")
         }
@@ -123,6 +140,10 @@ impl VM {
             heap: Heap::new(),
             globals: HashMap::new(),
             frames: Vec::with_capacity(u8::MAX as usize),
+
+            upvalue_allocations: HashMap::new(),
+            var_locations: HashMap::new(),
+            chunk_generators: Vec::new(),
         };
 
         for f in NativeFunctionObj::all() {
@@ -132,13 +153,34 @@ impl VM {
         vm
     }
 
-    pub fn interpret(&mut self, source: &str) -> InterpretResult {
-        let main_func = compile(source, self)?;
+    pub fn gen(&mut self) -> &mut ChunkGenerator {
+        // This is a crazy way to get a mutable reference to the last element
+        self.chunk_generators.iter_mut().rev().nth(0).unwrap()
+    }
 
-        let heap_index = self
-            .allocate(Object::new(ObjType::Function(Box::new(main_func))));
+    pub fn interpret(&mut self, source: &str) -> InterpretResult {
+        self.chunk_generators
+            .push(ChunkGenerator::new(FunctionType::Script));
+        compile(source, self)?;
+
+        // create empty function and set chunk after to avoid GCing chunk before main
+        // function allocation
+        let empty_str_index = self.allocate_string("");
+        // put on stack to avoid GCing
+        self.stack.push(empty_str_index);
+        let main_func = FunctionObj::empty(empty_str_index, self);
+
+        let heap_index = self.allocate(Object::new(ObjType::Function(Box::new(main_func))));
         let frame = CallFrame::new(heap_index, 0);
         self.frames.push(frame);
+
+        let chunk = self.chunk_generators.pop().unwrap().end();
+        self.frames[0].func_obj_mut(&mut self.heap).chunk = chunk;
+
+        self.upvalue_allocations.clear();
+        self.chunk_generators.clear();
+        self.var_locations.clear();
+        self.stack.pop();
 
         #[cfg(feature = "debug-logging")]
         self.current_frame().chunk(&self.heap).disassemble("main");
@@ -148,6 +190,11 @@ impl VM {
 
     fn current_frame(&self) -> &CallFrame {
         &self.frames[self.frames.len() - 1]
+    }
+
+    fn current_frame_mut(&mut self) -> &mut CallFrame {
+        let last_index = self.frames.len() - 1;
+        &mut self.frames[last_index]
     }
 
     fn runtime_error(&self, message: &str) -> () {
@@ -164,8 +211,7 @@ impl VM {
 
     fn define_native(&mut self, func_obj: NativeFunctionObj) -> () {
         let name = func_obj.name().to_string();
-        let heap_index = self
-            .allocate(Object::new(ObjType::NativeFunction(Box::new(func_obj))));
+        let heap_index = self.allocate(Object::new(ObjType::NativeFunction(Box::new(func_obj))));
         self.globals.insert(name, heap_index);
     }
 
@@ -189,6 +235,10 @@ impl VM {
                 heap,
                 globals: _,
                 frames,
+
+                upvalue_allocations: _,
+                var_locations: _,
+                chunk_generators: _,
             } = self;
             let last_index = frames.len() - 1;
             let current_frame = &mut frames[last_index];
@@ -233,9 +283,7 @@ impl VM {
                     println!("{}", value.print(&heap))
                 }
                 ByteCode::Constant(constant) => {
-                    let constant = current_frame
-                        .chunk(&self.heap)
-                        .get_constant(&constant);
+                    let constant = current_frame.chunk(&self.heap).get_constant(&constant);
                     stack.push(constant)
                 }
                 ByteCode::NegateInt => {
@@ -389,12 +437,12 @@ impl VM {
                         .get_constant(&constant);
                     let name = self.heap.get(&constant).as_string();
                     let value = self.stack.peek();
-                    let already_defined =
-                        if let None = self.globals.insert(name.to_string(), value) {
-                            true
-                        } else {
-                            false
-                        };
+                    let already_defined = if let None = self.globals.insert(name.to_string(), value)
+                    {
+                        true
+                    } else {
+                        false
+                    };
                     if already_defined {
                         // TODO static analysis for variable usage
                         // It was already defined
@@ -404,15 +452,12 @@ impl VM {
                     }
                 }
                 ByteCode::GetLocal(index) => {
-                    let value = self
-                        .stack
-                        .get(index + current_frame.stack_index);
+                    let value = self.stack.get(index + current_frame.stack_index);
                     self.stack.push(value)
                 }
                 ByteCode::SetLocal(index) => {
                     let value = self.stack.peek();
-                    self.stack
-                        .set(index + current_frame.stack_index, value)
+                    self.stack.set(index + current_frame.stack_index, value)
                 }
                 ByteCode::JumpIfFalse(offset) => {
                     if !self.stack.peek_bool() {

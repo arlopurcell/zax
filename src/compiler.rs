@@ -1,27 +1,22 @@
 use crate::ast::analyze;
-use crate::code_gen::{ChunkGenerator, FunctionType, GlobalGenerator};
-use crate::common::InterpretError;
-use crate::vm::VM;
+use crate::code_gen::{ChunkGenerator, FunctionType};
+use crate::common::{InterpretError, InterpretResult};
 use crate::lexer::Lexer;
 use crate::object::FunctionObj;
 use crate::parser::Parser;
+use crate::vm::VM;
 
-pub fn compile(source: &str, vm: &mut VM) -> Result<FunctionObj, InterpretError> {
+pub fn compile(source: &str, vm: &mut VM) -> InterpretResult {
     let bytes: Vec<_> = source.bytes().collect();
     let lexer = Lexer::new(&bytes);
     let mut parser = Parser::new(lexer);
     parser.advance();
     let mut ast = parser.program();
-    let mut global_generator = GlobalGenerator::new(vm);
     if parser.had_error {
         Err(InterpretError::Compile)
     } else {
-        analyze(&mut ast, &mut global_generator)?;
-        let mut generator = ChunkGenerator::new(FunctionType::Script);
-        ast.generate(&mut generator, &mut global_generator)
-            .map(|()| {
-                let chunk = generator.end();
-                FunctionObj::new("main", chunk, 0, vm)
-            })
+        analyze(&mut ast, vm)?;
+        ast.generate(vm)?;
+        Ok(())
     }
 }

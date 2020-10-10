@@ -84,22 +84,22 @@ impl ByteCode {
             | Self::Constant(_)
             | Self::DefineGlobal(_)
             | Self::GetGlobal(_)
-            | Self::SetGlobal(_)
-                => 2,
-            Self::JumpIfFalse(_)
-            | Self::Jump(_)
-            | Self::Loop(_)
-             => 3,
-            Self::Pop(_) | Self::GetHeap(_) | Self::Call(_)
-            | Self::GetLocal(_) | Self::SetLocal(_) | Self::SetHeap(_) => 9,
+            | Self::SetGlobal(_) => 2,
+            Self::JumpIfFalse(_) | Self::Jump(_) | Self::Loop(_) => 3,
+            Self::Pop(_)
+            | Self::GetHeap(_)
+            | Self::Call(_)
+            | Self::GetLocal(_)
+            | Self::SetLocal(_)
+            | Self::SetHeap(_) => 9,
         }
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 pub struct Chunk {
     code: Vec<u8>,
-    constants: Vec<i64>,
+    pub constants: Vec<i64>,
     // TODO save memory by using a run length encoding
     lines: Vec<u32>,
 }

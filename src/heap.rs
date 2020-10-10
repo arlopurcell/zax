@@ -4,7 +4,7 @@ use std::convert::TryInto;
 use crate::object::Object;
 
 pub struct Heap {
-    objects: FnvHashMap<i64, Object>,
+    pub objects: FnvHashMap<i64, Object>,
     counter: i64,
     pub interned_strings: FnvHashMap<String, i64>,
 }
@@ -33,7 +33,7 @@ impl<'a> Heap {
         }
 
         #[cfg(feature = "debug-log-gc")]
-        eprintln!("Allocate {} for {:?}", object.size(), object.print());
+        eprintln!("Allocate {} for {:?}", o.size(), o.print(self));
 
         self.objects.insert(self.counter, o);
         self.counter
@@ -41,6 +41,10 @@ impl<'a> Heap {
 
     pub fn get(&self, idx: &i64) -> &Object {
         self.objects.get(idx).unwrap()
+    }
+
+    pub fn try_get_mut(&mut self, idx: &i64) -> Option<&mut Object> {
+        self.objects.get_mut(idx)
     }
 
     pub fn get_mut(&mut self, idx: &i64) -> &mut Object {
@@ -54,6 +58,11 @@ impl<'a> Heap {
     }
     */
 
+    pub fn print_object(&self, idx: &i64) -> String {
+        let object = self.get(idx);
+        object.print(self)
+    }
+
     #[cfg(feature = "debug-logging")]
     pub fn print(&self) -> () {
         eprint!(" heap: ");
@@ -62,5 +71,4 @@ impl<'a> Heap {
         }
         eprintln!();
     }
-
 }

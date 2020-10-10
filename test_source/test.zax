@@ -1,15 +1,17 @@
-let a = 2;
+let a = "a first";
 {
-    let b = 3;
-    let c = 9;
+    let b = "b first";
+    let c = "c first";
     {
-        let d = 4;
-        a = 1;
-        c = 5;
+        let d = "d first";
+        a = "a second";
+        c = "c second";
         print a;
         print b; 
         print c;
         print d;
     }
+    print "done inner scope";
 }
+print "done outer scope";
 

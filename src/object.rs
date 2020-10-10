@@ -1,17 +1,18 @@
 use std::fmt;
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::mem::size_of;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::chunk::Chunk;
 use crate::heap::Heap;
 use crate::vm::VM;
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 pub struct Object {
     pub value: ObjType,
+    pub marked: bool,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 pub enum ObjType {
     Str(Box<String>),
     Function(Box<FunctionObj>),
@@ -20,9 +21,9 @@ pub enum ObjType {
     Nil,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 pub struct FunctionObj {
-    name_index: i64,
+    pub name_index: i64,
     pub arity: u8,
     pub chunk: Chunk,
     //pub name: String,
@@ -35,7 +36,10 @@ pub enum NativeFunctionObj {
 
 impl Object {
     pub fn new(obj_type: ObjType) -> Self {
-        Self { value: obj_type }
+        Self {
+            value: obj_type,
+            marked: false,
+        }
     }
 
     pub fn as_string(&self) -> &str {
@@ -57,7 +61,7 @@ impl Object {
 impl Drop for Object {
     fn drop(&mut self) -> () {
         #[cfg(feature = "debug-log-gc")]
-        eprintln!("Freeing {}", self.print())
+        eprintln!("Freeing {:?}", self)
     }
 }
 
@@ -95,6 +99,14 @@ impl FunctionObj {
             arity,
             chunk,
             //name: "".to_string(),
+        }
+    }
+
+    pub fn empty(name_index: i64, vm: &mut VM) -> Self {
+        Self {
+            name_index,
+            arity: 0,
+            chunk: Chunk::new(),
         }
     }
 
