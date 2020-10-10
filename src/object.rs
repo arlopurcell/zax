@@ -92,8 +92,7 @@ impl ObjType {
 }
 
 impl FunctionObj {
-    pub fn new(name: &str, chunk: Chunk, arity: u8, vm: &mut VM) -> Self {
-        let name_index = vm.allocate_string(&name);
+    pub fn new(name_index: i64, chunk: Chunk, arity: u8, vm: &mut VM) -> Self {
         Self {
             name_index,
             arity,
@@ -102,10 +101,10 @@ impl FunctionObj {
         }
     }
 
-    pub fn empty(name_index: i64, vm: &mut VM) -> Self {
+    pub fn empty(name_index: i64, arity: u8, vm: &mut VM) -> Self {
         Self {
             name_index,
-            arity: 0,
+            arity,
             chunk: Chunk::new(),
         }
     }

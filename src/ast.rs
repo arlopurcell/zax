@@ -290,10 +290,25 @@ impl AstNode {
                     _ => panic!("Invalid node type for function body"),
                 }
 
+                // create empty function without chunk so that chunk isn't GC'd before it's time
+                let name_index = vm.allocate_string(&name);
+                // put on stack to avoid GCing
+                vm.stack.push(name_index);
+                let func = FunctionObj::empty(name_index, arity, vm);
+
+                let heap_index = vm.allocate(Object::new(ObjType::Function(Box::new(func))));
+
+                // Add to second to last chunk generator (not the one for this function)
+                let chunk_gen_index = vm.chunk_generators.len() - 2;
+                vm.chunk_generators[chunk_gen_index].emit_constant(heap_index, self.line);
+                //vm.gen().emit_constant(heap_index, self.line);
+
                 let chunk = vm.chunk_generators.pop().unwrap().end();
-                let func = FunctionObj::new(&name, chunk, arity, vm);
-                let func_heap_index = vm.allocate(Object::new(ObjType::Function(Box::new(func))));
-                vm.gen().emit_constant(func_heap_index, self.line)
+                if let ObjType::Function(func) = &mut vm.heap.get_mut(&heap_index).value {
+                    func.chunk = chunk;
+                }
+                // pop name index off stack
+                vm.stack.pop();
             }
             AstNodeType::Call { target, args } => {
                 target.generate(vm)?;

@@ -40,23 +40,20 @@ impl<'a> Heap {
     }
 
     pub fn get(&self, idx: &i64) -> &Object {
-        self.objects.get(idx).unwrap()
+        self.try_get(idx).unwrap()
+    }
+
+    pub fn try_get(&self, idx: &i64) -> Option<&Object> {
+        self.objects.get(idx)
+    }
+
+    pub fn get_mut(&mut self, idx: &i64) -> &mut Object {
+        self.try_get_mut(idx).unwrap()
     }
 
     pub fn try_get_mut(&mut self, idx: &i64) -> Option<&mut Object> {
         self.objects.get_mut(idx)
     }
-
-    pub fn get_mut(&mut self, idx: &i64) -> &mut Object {
-        self.objects.get_mut(idx).unwrap()
-    }
-
-    /*
-    pub fn get_with_bytes(&'a self, idx: &[u8]) -> &'a Object {
-        let idx = i64::from_be_bytes(idx.try_into().unwrap());
-        self.get(&idx)
-    }
-    */
 
     pub fn print_object(&self, idx: &i64) -> String {
         let object = self.get(idx);

@@ -96,7 +96,7 @@ impl Stack {
         self.0.truncate(size);
     }
 
-    fn pop(&mut self) -> i64 {
+    pub fn pop(&mut self) -> i64 {
         self.0.pop().unwrap()
     }
 
@@ -112,7 +112,7 @@ impl Stack {
         self.peek() != 0
     }
 
-    fn push(&mut self, value: i64) -> () {
+    pub fn push(&mut self, value: i64) -> () {
         self.0.push(value)
     }
 
@@ -168,7 +168,7 @@ impl VM {
         let empty_str_index = self.allocate_string("");
         // put on stack to avoid GCing
         self.stack.push(empty_str_index);
-        let main_func = FunctionObj::empty(empty_str_index, self);
+        let main_func = FunctionObj::empty(empty_str_index, 0, self);
 
         let heap_index = self.allocate(Object::new(ObjType::Function(Box::new(main_func))));
         let frame = CallFrame::new(heap_index, 0);
@@ -180,6 +180,7 @@ impl VM {
         self.upvalue_allocations.clear();
         self.chunk_generators.clear();
         self.var_locations.clear();
+        // pop name index off stack
         self.stack.pop();
 
         #[cfg(feature = "debug-logging")]

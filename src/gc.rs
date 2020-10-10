@@ -9,7 +9,7 @@ pub fn collect_garbage(vm: &mut VM) -> () {
     eprintln!("-- gc begin");
 
     let gray_stack = mark_roots(vm);
-    trace_refs(gray_stack, &vm.heap);
+    trace_refs(gray_stack, &mut vm.heap);
     sweep_interned(&mut vm.heap);
     sweep(&mut vm.heap);
 
@@ -29,7 +29,10 @@ fn mark_roots(vm: &mut VM) -> Vec<i64> {
         .chain(
             vm.chunk_generators
                 .iter()
-                .map(|gen| gen.chunk.constants.iter())
+                //.map(|gen| gen.chunk.constants.iter())
+                .map(|gen| {
+                    gen.chunk.constants.iter()
+                })
                 .flatten(),
         )
     {
@@ -60,28 +63,36 @@ fn mark_value(value: &i64, heap: &mut Heap) -> Option<i64> {
     }
 }
 
-fn trace_refs(mut gray_stack: Vec<i64>, heap: &Heap) -> () {
+fn trace_refs(mut gray_stack: Vec<i64>, heap: &mut Heap) -> () {
     while let Some(gray_index) = gray_stack.pop() {
-        gray_stack.append(&mut blacken(&gray_index, &heap));
+        gray_stack.append(&mut blacken(&gray_index, heap));
     }
 }
 
-fn blacken(idx: &i64, heap: &Heap) -> Vec<i64> {
-    let object = &heap.get(idx);
+fn blacken(value: &i64, heap: &mut Heap) -> Vec<i64> {
+    if let Some(object) = &heap.try_get(value) {
+        #[cfg(feature = "debug-log-gc")]
+        eprintln!("{} blacken", object.print(heap));
 
-    #[cfg(feature = "debug-log-gc")]
-    eprintln!("{} blacken", object.print(heap));
+        let ref_values = match &object.value {
+            ObjType::NativeFunction(_) | ObjType::Nil | ObjType::Str(_) => Vec::new(),
+            ObjType::Upvalue(ref_idx) => vec![*ref_idx],
+            ObjType::Function(func) => func
+                .chunk
+                .constants
+                .iter()
+                .chain(once(&func.name_index))
+                .cloned()
+                .collect(),
+        };
 
-    match &object.value {
-        ObjType::NativeFunction(_) | ObjType::Nil | ObjType::Str(_) => Vec::new(),
-        ObjType::Upvalue(ref_idx) => vec![*ref_idx],
-        ObjType::Function(func) => func
-            .chunk
-            .constants
-            .iter()
-            .chain(once(&func.name_index))
-            .cloned()
-            .collect(),
+        for value in ref_values.iter() {
+            mark_value(value, heap);
+        }
+        ref_values
+    } else {
+        // If the value isn't in the heap, then it's a primitive and doesn't need gc'ing
+        Vec::new()
     }
 }
 

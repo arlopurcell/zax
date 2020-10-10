@@ -1,17 +1,8 @@
-let a = "a first";
-{
-    let b = "b first";
-    let c = "c first";
-    {
-        let d = "d first";
-        a = "a second";
-        c = "c second";
-        print a;
-        print b; 
-        print c;
-        print d;
-    }
-    print "done inner scope";
+fun add_4(x: int) -> int {
+    return x + 4;
 }
-print "done outer scope";
+
+print add_4(3);
+print add_4(8);
+print add_4(11);
 
