@@ -304,10 +304,11 @@ pub fn final_type_check(node: &AstNode) -> InterpretResult {
 
 fn check_operator_constraints(node: &AstNode) -> Result<(), TypeError> {
     match &node.node_type {
-        AstNodeType::IntLiteral(_) => Ok(()),
-        AstNodeType::FloatLiteral(_) => Ok(()),
-        AstNodeType::BoolLiteral(_) => Ok(()),
-        AstNodeType::StrLiteral(_) => Ok(()),
+        AstNodeType::IntLiteral(_)
+        | AstNodeType::FloatLiteral(_)
+        | AstNodeType::BoolLiteral(_)
+        | AstNodeType::StrLiteral(_)
+        | AstNodeType::TypeAnnotation => Ok(()),
         AstNodeType::Unary(operator, operand) => {
             check_operator_constraints(operand)?;
             match operator {
@@ -538,13 +539,10 @@ fn generate_constraints<'a>(
                     type_annotation,
                 } => {
                     scope.insert(&name, TCSide::Expr(rhs.id));
-                    if let Some(type_annotation) = type_annotation {
-                        let var_type = TCNodeType::try_from(&type_annotation)?;
-                        constraints.push(TypeConstraint::new(
-                            TCSide::Expr(lhs.id),
-                            TCSide::basic(var_type),
-                        ));
-                    }
+                    constraints.push(TypeConstraint::new(
+                        TCSide::Expr(lhs.id),
+                        TCSide::Expr(type_annotation.id),
+                    ));
                 }
                 _ => panic!("Invalid lhs for let"),
             };
@@ -589,20 +587,16 @@ fn generate_constraints<'a>(
             let mut constraints = if let Some(tc_side) = scope.get(name) {
                 vec![TypeConstraint::new(TCSide::Expr(node.id), tc_side)]
             } else {
-                // TODO for recursive stuff, it's not here yet. but how do i get this to happen
-                // later?
                 Vec::new()
             };
 
-            if let Some(type_annotation) = type_annotation {
-                let var_type = TCNodeType::try_from(&type_annotation)?;
-                constraints.push(TypeConstraint::new(
-                    TCSide::Expr(node.id),
-                    TCSide::basic(var_type),
-                ));
-            }
+            constraints.push(TypeConstraint::new(
+                TCSide::Expr(node.id),
+                TCSide::Expr(type_annotation.id),
+            ));
             Ok(constraints)
         }
+        AstNodeType::TypeAnnotation => Ok(Vec::new()),
         AstNodeType::FunctionDef {
             name: _,
             return_type,
@@ -621,14 +615,11 @@ fn generate_constraints<'a>(
                         type_annotation,
                     } => {
                         func_scope.insert(&name, TCSide::Expr(param.id));
-                        if let Some(type_annotation) = type_annotation {
-                            let param_type = TCNodeType::try_from(&type_annotation)?;
-                            constraints.push(TypeConstraint::new(
-                                TCSide::Expr(param.id),
-                                TCSide::basic(param_type),
-                            ));
-                        }
-                        // TODO else fail? i.e. require type annotations on parameters
+                        constraints.push(TypeConstraint::new(
+                            TCSide::Expr(param.id),
+                            TCSide::Expr(type_annotation.id),
+                        ));
+                        // TODO require data type on parameter type annotation node?
                     }
                     _ => panic!("Invalid node type for func param"),
                 }

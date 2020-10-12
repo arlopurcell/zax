@@ -35,7 +35,7 @@ pub enum AstNodeType {
 
     Variable {
         name: String,
-        type_annotation: Option<String>,
+        type_annotation: Box<AstNode>,
     },
 
     Call {
@@ -57,6 +57,8 @@ pub enum AstNodeType {
     Block(Vec<AstNode>, usize),
     IfStatement(Box<AstNode>, Box<AstNode>, Box<AstNode>),
     Program(Vec<AstNode>),
+
+    TypeAnnotation,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -243,6 +245,15 @@ impl AstNode {
                 _ => None,
             },
             node_type,
+        }
+    }
+
+    pub fn type_annotation(id: u64, line: u32, data_type: DataType) -> Self {
+        Self {
+            id,
+            line,
+            data_type: Some(data_type),
+            node_type: AstNodeType::TypeAnnotation,
         }
     }
 
@@ -602,6 +613,7 @@ impl AstNode {
                 rhs.generate(vm)?;
                 vm.gen().emit_byte(code, self.line)
             }
+            AstNodeType::TypeAnnotation => (),
             AstNodeType::Error => panic!("Shouldn't try to generate code for Error node"),
         }
         Ok(())
@@ -614,6 +626,7 @@ impl AstNode {
             | AstNodeType::StrLiteral(_)
             | AstNodeType::BoolLiteral(_)
             | AstNodeType::Error
+            | AstNodeType::TypeAnnotation
             | AstNodeType::ReturnStatement(None) => scope,
             AstNodeType::Unary(_, e)
             | AstNodeType::PrintStatement(e)
@@ -770,6 +783,7 @@ impl AstNode {
             | AstNodeType::FloatLiteral(_)
             | AstNodeType::StrLiteral(_)
             | AstNodeType::BoolLiteral(_)
+            | AstNodeType::TypeAnnotation
             | AstNodeType::Error => (),
         }
         Ok(())

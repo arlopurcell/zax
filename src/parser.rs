@@ -2,6 +2,7 @@ use std::mem::swap;
 
 use crate::ast::{AstNode, AstNodeType, Operator};
 use crate::lexer::{Lexer, Token, TokenType};
+use crate::type_check::DataType;
 
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
@@ -226,19 +227,65 @@ impl<'a> Parser<'a> {
         self.consume(TokenType::Identifier, "Expect variable name");
         let var_name = self.previous.source;
         let type_annotation = if self.match_tok(TokenType::Colon) {
-            self.consume(TokenType::Identifier, "Expect type annotation after ':'");
-            Some(self.previous.source.to_string())
+            self.type_annotation()
         } else {
-            None
+            AstNode::new(self.id(), self.previous.line, AstNodeType::TypeAnnotation)
         };
         AstNode::new(
             self.id(),
             self.previous.line,
             AstNodeType::Variable {
                 name: var_name.to_string(),
-                type_annotation,
+                type_annotation: Box::new(type_annotation),
             },
         )
+    }
+
+    fn type_annotation(&mut self) -> AstNode {
+        if self.match_tok(TokenType::Fun) {
+            self.consume(
+                TokenType::LeftParen,
+                "Expect '(' before function parameter types",
+            );
+            let line = self.previous.line;
+            let parameters = self
+                .comma_separated(
+                    InnerParser::TypeAnnotation,
+                    TokenType::RightParen,
+                    "after parameter types.",
+                )
+                .into_iter()
+                .map(|node| node.data_type.unwrap())
+                .collect();
+            self.consume(
+                TokenType::Arrow,
+                "Expect '->' after function parameter types",
+            );
+            let return_type = self.type_annotation().data_type.unwrap();
+            AstNode::type_annotation(
+                self.id(),
+                line,
+                DataType::Function {
+                    return_type: Box::new(return_type),
+                    parameters,
+                },
+            )
+        } else {
+            self.consume(TokenType::Identifier, "Invalid type annotation");
+            // TODO user types
+            let data_type = match self.previous.source {
+                "int" => DataType::Int,
+                "float" => DataType::Float,
+                "bool" => DataType::Bool,
+                "str" => DataType::Str,
+                "nil" => DataType::Nil,
+                _ => {
+                    self.error("Invalid type");
+                    DataType::Nil
+                }
+            };
+            AstNode::type_annotation(self.id(), self.previous.line, data_type)
+        }
     }
 
     fn fun_declaration(&mut self) -> AstNode {
@@ -423,7 +470,11 @@ impl<'a> Parser<'a> {
             self.previous.line,
             AstNodeType::Variable {
                 name: self.previous.source.to_string(),
-                type_annotation: None,
+                type_annotation: Box::new(AstNode::new(
+                    self.id(),
+                    self.previous.line,
+                    AstNodeType::TypeAnnotation,
+                )),
             },
         )
     }
@@ -508,6 +559,7 @@ impl<'a> Parser<'a> {
             args.push(match inner {
                 InnerParser::Expression => self.expression(),
                 InnerParser::Variable => self.variable_declaration(),
+                InnerParser::TypeAnnotation => self.type_annotation(),
             });
             if !self.match_tok(TokenType::Comma) {
                 self.consume(end_tok, &format!("Expect {:?} {}", end_tok, context));
@@ -526,6 +578,7 @@ impl<'a> Parser<'a> {
 enum InnerParser {
     Expression,
     Variable,
+    TypeAnnotation,
 }
 
 fn prefix_precedence(tok_type: &TokenType) -> Precedence {
