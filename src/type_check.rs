@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::error;
 use std::fmt;
 
-use crate::ast::{AstNode, AstNodeType, Operator};
+use crate::ast::{AstNode, AstNodeType, NodeId, Operator};
 use crate::common::{InterpretError, InterpretResult};
 use crate::object::NativeFunctionObj;
 
@@ -36,6 +36,24 @@ impl TCSide {
             parameters: Vec::new(),
         }
     }
+
+    fn from(data_type: &DataType) -> Self {
+        match data_type {
+            DataType::Int => TCSide::basic(TCNodeType::Int),
+            DataType::Float => TCSide::basic(TCNodeType::Float),
+            DataType::Bool => TCSide::basic(TCNodeType::Bool),
+            DataType::Str => TCSide::basic(TCNodeType::Str),
+            DataType::Nil => TCSide::basic(TCNodeType::Nil),
+            DataType::Function {
+                return_type,
+                parameters,
+            } => TCSide::Constraint {
+                base_type: TCNodeType::Function,
+                return_type: Some(Box::new(TCSide::from(return_type))),
+                parameters: parameters.iter().map(|p| TCSide::from(p)).collect(),
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -47,22 +65,6 @@ enum TCNodeType {
     Function,
     Nil,
     // TOOD Array,
-}
-
-impl TCNodeType {
-    fn try_from(s: &str) -> Result<Self, TypeError> {
-        match s {
-            "int" => Ok(Self::Int),
-            "float" => Ok(Self::Float),
-            "bool" => Ok(Self::Bool),
-            "str" => Ok(Self::Str),
-            "nil" => Ok(Self::Nil),
-            _ => {
-                // TODO print something useful
-                Err(TypeError::InvalidTypeAnnonation(s.to_string()))
-            }
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -98,16 +100,18 @@ impl DataType {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeError {
     Mismatched, // TODO add type params
-    InvalidTypeAnnonation(String),
+                //InvalidTypeAnnonation(String),
 }
 
 impl fmt::Display for TypeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             TypeError::Mismatched => write!(f, "Mismatched types.",),
+            /*
             TypeError::InvalidTypeAnnonation(name) => {
                 write!(f, "Invalid type annotation: {}", name,)
             }
+            */
         }
     }
 }
@@ -167,11 +171,11 @@ impl<'a> Scope<'a> {
 }
 
 pub fn find_type(
-    node: &AstNode,
+    node_id: &NodeId,
     substitutions: &[TypeConstraint],
 ) -> Result<DataType, InterpretError> {
     side_to_data_type(
-        find_type_helper(&TCSide::Expr(node.id), substitutions, &mut Vec::new()).as_ref(),
+        find_type_helper(&TCSide::Expr(*node_id), substitutions, &mut Vec::new()).as_ref(),
         substitutions,
     )
 }
@@ -227,6 +231,18 @@ fn error(message: &str) -> InterpretError {
     InterpretError::Compile
 }
 
+fn side_matches_id(side: &&TCSide, id: NodeId) -> bool {
+    if let TCSide::Expr(side_id) = *side {
+        *side_id == id
+    } else {
+        false
+    }
+}
+
+fn side_id_matcher(id: NodeId) -> impl Fn(&&TCSide) -> bool {
+    move |side| side_matches_id(side, id)
+}
+
 fn find_type_helper<'a>(
     target: &'a TCSide,
     substitutions: &'a [TypeConstraint],
@@ -246,6 +262,48 @@ fn find_type_helper<'a>(
                         left,
                         right: TCSide::Expr(sub_id),
                     } if sub_id == id => find_type_helper(left, substitutions, visited),
+                    TypeConstraint {
+                        left:
+                            TCSide::Constraint {
+                                base_type: TCNodeType::Function,
+                                return_type: left_rt,
+                                parameters: left_params,
+                            },
+                        right:
+                            TCSide::Constraint {
+                                base_type: TCNodeType::Function,
+                                return_type: right_rt,
+                                parameters: right_params,
+                            },
+                    } => {
+                        if left_rt.as_deref().filter(side_id_matcher(*id)).is_some() {
+                            right_rt
+                                .as_deref()
+                                .and_then(|rt| find_type_helper(rt, substitutions, visited))
+                        } else if right_rt.as_deref().filter(side_id_matcher(*id)).is_some() {
+                            left_rt
+                                .as_deref()
+                                .and_then(|rt| find_type_helper(rt, substitutions, visited))
+                        } else if let Some((idx, _)) = left_params
+                            .iter()
+                            .enumerate()
+                            .find(|(_, p)| side_matches_id(p, *id))
+                        {
+                            right_params
+                                .get(idx)
+                                .and_then(|rt| find_type_helper(rt, substitutions, visited))
+                        } else if let Some((idx, _)) = right_params
+                            .iter()
+                            .enumerate()
+                            .find(|(_, p)| side_matches_id(p, *id))
+                        {
+                            left_params
+                                .get(idx)
+                                .and_then(|rt| find_type_helper(rt, substitutions, visited))
+                        } else {
+                            None
+                        }
+                    }
                     _ => None,
                 };
                 visited.retain(|item| *item != target);
@@ -590,13 +648,21 @@ fn generate_constraints<'a>(
                 Vec::new()
             };
 
+            constraints.append(&mut generate_constraints(type_annotation, scope)?);
             constraints.push(TypeConstraint::new(
                 TCSide::Expr(node.id),
                 TCSide::Expr(type_annotation.id),
             ));
             Ok(constraints)
         }
-        AstNodeType::TypeAnnotation => Ok(Vec::new()),
+        AstNodeType::TypeAnnotation => Ok(if let Some(data_type) = node.data_type.as_ref() {
+            vec![TypeConstraint::new(
+                TCSide::Expr(node.id),
+                TCSide::from(data_type),
+            )]
+        } else {
+            Vec::new()
+        }),
         AstNodeType::FunctionDef {
             name: _,
             return_type,
@@ -612,27 +678,32 @@ fn generate_constraints<'a>(
                 match &param.node_type {
                     AstNodeType::Variable {
                         name,
-                        type_annotation,
+                        type_annotation: _,
                     } => {
                         func_scope.insert(&name, TCSide::Expr(param.id));
+                        /*
                         constraints.push(TypeConstraint::new(
                             TCSide::Expr(param.id),
                             TCSide::Expr(type_annotation.id),
                         ));
+                        */
                         // TODO require data type on parameter type annotation node?
                     }
                     _ => panic!("Invalid node type for func param"),
                 }
             }
 
-            // TODO support more complex (function) return types
-            let return_type = TCNodeType::try_from(return_type)?;
+            //constraints.push(TypeConstraint::new(TCSide::Expr(return_type.id), TCSide::from(return_type.data_type.as_ref().unwrap())));
+            constraints.append(&mut generate_constraints(return_type, func_scope)?);
+
             constraints.push(TypeConstraint::new(
                 TCSide::Expr(node.id),
                 TCSide::Constraint {
                     base_type: TCNodeType::Function,
-                    return_type: Some(Box::new(TCSide::basic(return_type))),
+                    //return_type: Some(Box::new(TCSide::from(return_type.data_type.as_ref().unwrap()))),
+                    return_type: Some(Box::new(TCSide::Expr(return_type.id))),
                     parameters: params.iter().map(|p| TCSide::Expr(p.id)).collect(),
+                    //parameters: params.iter().map(|p| TCSide::from(p.data_type.as_ref().unwrap())).collect(),
                 },
             ));
 

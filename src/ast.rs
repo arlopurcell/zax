@@ -47,7 +47,7 @@ pub enum AstNodeType {
     DeclareStatement(Box<AstNode>, Box<AstNode>),
     FunctionDef {
         name: String,
-        return_type: String,
+        return_type: Box<AstNode>,
         params: Vec<AstNode>,
         body: Box<AstNode>,
     },
@@ -291,6 +291,21 @@ impl AstNode {
                     .push(ChunkGenerator::new(FunctionType::Function));
 
                 let arity = params.len() as u8;
+
+                let mut param_index = 1; // start at 1 for function slot
+                for param in params {
+                    if let Some(VarLocation::Upvalue(node_id)) = vm.var_locations.get(&param.id) {
+                        let node_id = *node_id;
+                        let heap_index = vm.allocate(Object::new(ObjType::Upvalue(0)));
+                        vm.upvalue_allocations.insert(node_id, heap_index);
+                        vm.gen()
+                            .emit_byte(ByteCode::GetLocal(param_index), self.line);
+                        vm.gen().emit_byte(ByteCode::SetHeap(heap_index), self.line);
+                        vm.gen().emit_byte(ByteCode::Pop(1), self.line);
+                    }
+                    param_index += param.data_type.unwrap().size() as usize;
+                }
+
                 // TODO maybe just recurse for body. there's an extra popn but whatever
                 match body.node_type {
                     AstNodeType::Block(statements, _) => {
@@ -454,7 +469,7 @@ impl AstNode {
                             let upvalue_allocations = &mut vm.upvalue_allocations;
                             let heap_index = upvalue_allocations
                                 .get(&node_id)
-                                .expect("Unallocated upvalue");
+                                .expect(&format!("Unallocated upvalue for {}", name));
                             gen.emit_byte(ByteCode::GetHeap(*heap_index), self.line);
                         }
                         VarLocation::Global => {
@@ -708,7 +723,7 @@ impl AstNode {
     }
 
     pub fn resolve_types(&mut self, substitutions: &Vec<TypeConstraint>) -> InterpretResult {
-        let data_type = find_type(&self, substitutions)?;
+        let data_type = find_type(&self.id, substitutions)?;
         self.data_type = Some(data_type);
 
         match &mut self.node_type {

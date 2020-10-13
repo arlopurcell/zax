@@ -315,8 +315,7 @@ impl<'a> Parser<'a> {
         );
 
         self.consume(TokenType::Arrow, "Expect '->' after parameters.");
-        self.consume(TokenType::Identifier, "Expect return type after ->");
-        let return_type = self.previous.source;
+        let return_type = self.type_annotation();
 
         self.consume(TokenType::LeftBrace, "Expect '{' after return type");
         let body = self.block();
@@ -326,7 +325,7 @@ impl<'a> Parser<'a> {
             line,
             AstNodeType::FunctionDef {
                 name: name.to_string(),
-                return_type: return_type.to_string(),
+                return_type: Box::new(return_type),
                 params,
                 body: Box::new(body),
             },
