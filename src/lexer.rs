@@ -66,6 +66,9 @@ pub enum TokenType {
     Arrow,
     Colon,
 
+    Pipe,
+    Amp,
+
     Error,
     Eof,
 }
@@ -109,14 +112,14 @@ impl<'a> Lexer<'a> {
                     if self.match_char('&') {
                         self.make_token(TokenType::And)
                     } else {
-                        self.error_token("No '&' operator. Perhaps you meant '&&'")
+                        self.make_token(TokenType::Amp)
                     }
                 }
                 '|' => {
                     if self.match_char('|') {
                         self.make_token(TokenType::Or)
                     } else {
-                        self.error_token("No '|' operator. Perhaps you meant '||'")
+                        self.make_token(TokenType::Pipe)
                     }
                 }
                 '!' => {

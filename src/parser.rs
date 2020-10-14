@@ -116,6 +116,7 @@ impl<'a> Parser<'a> {
             ),
             TokenType::Str => self.string(),
             TokenType::Identifier => self.variable(),
+            TokenType::Pipe => self.lambda(),
             _ => {
                 self.error("Expect expression.");
                 AstNode::new(self.id(), self.previous.line, AstNodeType::Error)
@@ -332,6 +333,48 @@ impl<'a> Parser<'a> {
         )
     }
 
+    fn lambda(&mut self) -> AstNode {
+        let line = self.previous.line;
+        let params = self.comma_separated(
+            InnerParser::Variable,
+            TokenType::Pipe,
+            "after labmda parameters.",
+        );
+        let return_type = Box::new(AstNode::new(
+            self.id(),
+            self.previous.line,
+            AstNodeType::TypeAnnotation,
+        ));
+        let body = if self.match_tok(TokenType::LeftBrace) {
+            self.block()
+        } else {
+            let e = self.expression();
+            AstNode::new(
+                self.id(),
+                line,
+                AstNodeType::Block(
+                    vec![AstNode::new(
+                        self.id(),
+                        line,
+                        AstNodeType::ReturnStatement(Box::new(e)),
+                    )],
+                    0,
+                ),
+            )
+        };
+
+        AstNode::new(
+            self.id(),
+            line,
+            AstNodeType::FunctionDef {
+                name: "lambda".to_string(),
+                return_type,
+                params,
+                body: Box::new(body),
+            },
+        )
+    }
+
     fn statement(&mut self) -> AstNode {
         if self.match_tok(TokenType::Print) {
             self.print_statement()
@@ -425,12 +468,16 @@ impl<'a> Parser<'a> {
     fn return_statement(&mut self) -> AstNode {
         let line = self.previous.line;
         let value = if self.check(TokenType::SemiColon) {
-            None
+            AstNode::type_annotation(self.id(), line, DataType::Nil)
         } else {
-            Some(Box::new(self.expression()))
+            self.expression()
         };
         self.consume(TokenType::SemiColon, "Expect ';' after return statement.");
-        AstNode::new(self.id(), line, AstNodeType::ReturnStatement(value))
+        AstNode::new(
+            self.id(),
+            line,
+            AstNodeType::ReturnStatement(Box::new(value)),
+        )
     }
 
     fn expression(&mut self) -> AstNode {

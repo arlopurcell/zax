@@ -4,9 +4,7 @@ use crate::chunk::ByteCode;
 use crate::code_gen::{ChunkGenerator, FunctionType};
 use crate::common::{InterpretError, InterpretResult};
 use crate::object::{FunctionObj, ObjType, Object};
-use crate::type_check::{
-    final_type_check, find_type, generate_substitutions, DataType, TypeConstraint,
-};
+use crate::type_check::{create_type_map, final_type_check, generate_substitutions, DataType};
 use crate::vm::VM;
 
 #[derive(Debug, Clone)]
@@ -53,7 +51,7 @@ pub enum AstNodeType {
     },
     PrintStatement(Box<AstNode>),
     ExpressionStatement(Box<AstNode>),
-    ReturnStatement(Option<Box<AstNode>>),
+    ReturnStatement(Box<AstNode>),
     Block(Vec<AstNode>, usize),
     IfStatement(Box<AstNode>, Box<AstNode>, Box<AstNode>),
     Program(Vec<AstNode>),
@@ -382,18 +380,13 @@ impl AstNode {
                 if vm.gen().func_type == FunctionType::Script {
                     return error(self.line, "Can't return from top-level code.");
                 }
-                let code = if let Some(e) = e {
-                    let size = e
-                        .data_type
-                        .as_ref()
-                        .expect("Return value must be typed")
-                        .size();
-                    e.generate(vm)?;
-                    ByteCode::Return(size)
-                } else {
-                    ByteCode::Return(0)
-                };
-                vm.gen().emit_byte(code, self.line)
+                let size = e
+                    .data_type
+                    .as_ref()
+                    .expect("Return value must be typed")
+                    .size();
+                e.generate(vm)?;
+                vm.gen().emit_byte(ByteCode::Return(size), self.line)
             }
             AstNodeType::DeclareStatement(lhs, rhs) => match lhs.node_type {
                 AstNodeType::Variable {
@@ -641,12 +634,11 @@ impl AstNode {
             | AstNodeType::StrLiteral(_)
             | AstNodeType::BoolLiteral(_)
             | AstNodeType::Error
-            | AstNodeType::TypeAnnotation
-            | AstNodeType::ReturnStatement(None) => scope,
+            | AstNodeType::TypeAnnotation => scope,
             AstNodeType::Unary(_, e)
             | AstNodeType::PrintStatement(e)
             | AstNodeType::ExpressionStatement(e)
-            | AstNodeType::ReturnStatement(Some(e)) => e.resolve_variables(scope, vm),
+            | AstNodeType::ReturnStatement(e) => e.resolve_variables(scope, vm),
             AstNodeType::Program(stmts) => {
                 for s in stmts {
                     scope = s.resolve_variables(scope, vm);
@@ -722,58 +714,55 @@ impl AstNode {
         }
     }
 
-    pub fn resolve_types(&mut self, substitutions: &Vec<TypeConstraint>) -> InterpretResult {
-        let data_type = find_type(&self.id, substitutions)?;
-        self.data_type = Some(data_type);
+    pub fn resolve_types(&mut self, type_map: &HashMap<NodeId, DataType>) -> InterpretResult {
+        self.data_type = type_map.get(&self.id).cloned();
 
         match &mut self.node_type {
             AstNodeType::Unary(_, operand) => {
-                operand.resolve_types(substitutions)?;
+                operand.resolve_types(type_map)?;
             }
             AstNodeType::Binary(_, lhs, rhs) => {
-                lhs.resolve_types(substitutions)?;
-                rhs.resolve_types(substitutions)?;
+                lhs.resolve_types(type_map)?;
+                rhs.resolve_types(type_map)?;
             }
             AstNodeType::Block(statements, _) => {
                 let statements: Result<Vec<_>, _> = statements
                     .into_iter()
-                    .map(|s| s.resolve_types(substitutions))
+                    .map(|s| s.resolve_types(type_map))
                     .collect();
                 statements?;
             }
             AstNodeType::Program(statements) => {
                 let statements: Result<Vec<_>, _> = statements
                     .into_iter()
-                    .map(|s| s.resolve_types(substitutions))
+                    .map(|s| s.resolve_types(type_map))
                     .collect();
                 statements?;
             }
             AstNodeType::PrintStatement(e) | AstNodeType::ExpressionStatement(e) => {
-                e.resolve_types(substitutions)?;
+                e.resolve_types(type_map)?;
             }
             AstNodeType::ReturnStatement(e) => {
-                if let Some(e) = e {
-                    e.resolve_types(substitutions)?;
-                }
+                e.resolve_types(type_map)?;
             }
             AstNodeType::DeclareStatement(lhs, rhs) => {
-                lhs.resolve_types(substitutions)?;
-                rhs.resolve_types(substitutions)?;
+                lhs.resolve_types(type_map)?;
+                rhs.resolve_types(type_map)?;
             }
             AstNodeType::IfStatement(condition, then_block, else_block) => {
-                condition.resolve_types(substitutions)?;
-                then_block.resolve_types(substitutions)?;
-                else_block.resolve_types(substitutions)?;
+                condition.resolve_types(type_map)?;
+                then_block.resolve_types(type_map)?;
+                else_block.resolve_types(type_map)?;
             }
             AstNodeType::WhileStatement(condition, loop_block) => {
-                condition.resolve_types(substitutions)?;
-                loop_block.resolve_types(substitutions)?;
+                condition.resolve_types(type_map)?;
+                loop_block.resolve_types(type_map)?;
             }
             AstNodeType::Call { target, args } => {
-                target.resolve_types(substitutions)?;
+                target.resolve_types(type_map)?;
                 let args: Result<Vec<_>, _> = args
                     .into_iter()
-                    .map(|arg| arg.resolve_types(substitutions))
+                    .map(|arg| arg.resolve_types(type_map))
                     .collect();
                 args?;
             }
@@ -785,10 +774,10 @@ impl AstNode {
             } => {
                 let params: Result<Vec<_>, _> = params
                     .into_iter()
-                    .map(|param| param.resolve_types(substitutions))
+                    .map(|param| param.resolve_types(type_map))
                     .collect();
                 params?;
-                body.resolve_types(substitutions)?;
+                body.resolve_types(type_map)?;
             }
             AstNodeType::Variable {
                 name: _,
@@ -819,7 +808,14 @@ pub fn analyze(ast: &mut AstNode, vm: &mut VM) -> InterpretResult {
     let substitutions = generate_substitutions(ast);
     match substitutions {
         Ok(substitutions) => {
-            ast.resolve_types(&substitutions)?;
+            #[cfg(feature = "debug-type-check")]
+            {
+                eprintln!("{:#?}", ast);
+                eprintln!("{:#?}", substitutions);
+            }
+
+            let type_map = create_type_map(substitutions)?;
+            ast.resolve_types(&type_map)?;
             final_type_check(&ast)?;
 
             ast.resolve_variables(Scope::top(), vm);

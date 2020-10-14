@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::error;
 use std::fmt;
 
@@ -6,7 +6,7 @@ use crate::ast::{AstNode, AstNodeType, NodeId, Operator};
 use crate::common::{InterpretError, InterpretResult};
 use crate::object::NativeFunctionObj;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct TypeConstraint {
     left: TCSide,
     right: TCSide,
@@ -54,9 +54,43 @@ impl TCSide {
             },
         }
     }
+
+    fn constrained_type(&self, type_map: &mut HashMap<NodeId, DataType>) -> Option<DataType> {
+        match self {
+            Self::Expr(id) => type_map.get(id).cloned(),
+            Self::Constraint {
+                base_type,
+                return_type,
+                parameters,
+            } => match base_type {
+                TCNodeType::Int => Some(DataType::Int),
+                TCNodeType::Float => Some(DataType::Float),
+                TCNodeType::Bool => Some(DataType::Bool),
+                TCNodeType::Str => Some(DataType::Str),
+                TCNodeType::Nil => Some(DataType::Nil),
+                TCNodeType::Function => {
+                    let cons_rt = return_type
+                        .as_ref()
+                        .and_then(|rt| rt.constrained_type(type_map));
+                    let cons_params: Option<Vec<_>> = parameters
+                        .iter()
+                        .map(|p| p.constrained_type(type_map))
+                        .collect();
+                    if let (Some(rt), Some(params)) = (cons_rt, cons_params) {
+                        Some(DataType::Function {
+                            return_type: Box::new(rt),
+                            parameters: params,
+                        })
+                    } else {
+                        None
+                    }
+                }
+            },
+        }
+    }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 enum TCNodeType {
     Int,
     Float,
@@ -107,11 +141,6 @@ impl fmt::Display for TypeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             TypeError::Mismatched => write!(f, "Mismatched types.",),
-            /*
-            TypeError::InvalidTypeAnnonation(name) => {
-                write!(f, "Invalid type annotation: {}", name,)
-            }
-            */
         }
     }
 }
@@ -170,148 +199,132 @@ impl<'a> Scope<'a> {
     }
 }
 
-pub fn find_type(
-    node_id: &NodeId,
-    substitutions: &[TypeConstraint],
-) -> Result<DataType, InterpretError> {
-    side_to_data_type(
-        find_type_helper(&TCSide::Expr(*node_id), substitutions, &mut Vec::new()).as_ref(),
-        substitutions,
-    )
-}
-
-fn side_to_data_type(
-    side: Option<&TCSide>,
-    substitutions: &[TypeConstraint],
-) -> Result<DataType, InterpretError> {
-    match side {
-        None => Err(error("Failed to infer type")),
-        Some(TCSide::Expr(_)) => Err(error("failed to infer type")),
-        Some(TCSide::Constraint {
-            base_type,
-            return_type,
-            parameters,
-        }) => Ok(match base_type {
-            TCNodeType::Int => DataType::Int,
-            TCNodeType::Float => DataType::Float,
-            TCNodeType::Bool => DataType::Bool,
-            TCNodeType::Str => DataType::Str,
-            TCNodeType::Nil => DataType::Nil,
-            TCNodeType::Function => {
-                let return_type = if let Some(return_type) = return_type {
-                    find_side_data_type(return_type, substitutions)
-                } else {
-                    Err(error("Failed to find return type"))
-                }?;
-                let parameters: Result<Vec<_>, _> = parameters
-                    .iter()
-                    .map(|p| find_side_data_type(p, substitutions))
-                    .collect();
-                DataType::Function {
-                    return_type: Box::new(return_type),
-                    parameters: parameters?,
-                }
-            }
-        }),
-    }
-}
-
-fn find_side_data_type(
-    target: &TCSide,
-    substitutions: &[TypeConstraint],
-) -> Result<DataType, InterpretError> {
-    side_to_data_type(
-        find_type_helper(target, substitutions, &mut Vec::new()).as_ref(),
-        substitutions,
-    )
-}
-
 fn error(message: &str) -> InterpretError {
     eprintln!("Error: {}", message);
     InterpretError::Compile
 }
 
-fn side_matches_id(side: &&TCSide, id: NodeId) -> bool {
-    if let TCSide::Expr(side_id) = *side {
-        *side_id == id
-    } else {
-        false
+pub fn create_type_map(
+    substitutions: Vec<TypeConstraint>,
+) -> Result<HashMap<NodeId, DataType>, InterpretError> {
+    let mut type_map = HashMap::new();
+    let mut sub_deque = VecDeque::new();
+    sub_deque.extend(substitutions);
+
+    populate_type_map(sub_deque, &mut type_map).map(|_| type_map)
+}
+
+fn populate_type_map(
+    mut substitutions: VecDeque<TypeConstraint>,
+    type_map: &mut HashMap<NodeId, DataType>,
+) -> InterpretResult {
+    let max_iterations = substitutions.len() * 50;
+    let mut iterations = 0;
+    while let Some(sub) = substitutions.pop_front() {
+        substitutions.extend(insert_if_constrained(sub.left, sub.right, type_map));
+
+        let mut resoved_node_ids: Vec<_> = type_map.keys().collect();
+        resoved_node_ids.sort();
+
+        iterations += 1;
+        if iterations > max_iterations {
+            return Err(error("Failed to substitute types."));
+        }
     }
+    Ok(())
 }
 
-fn side_id_matcher(id: NodeId) -> impl Fn(&&TCSide) -> bool {
-    move |side| side_matches_id(side, id)
-}
+fn insert_if_constrained(
+    left: TCSide,
+    right: TCSide,
+    type_map: &mut HashMap<NodeId, DataType>,
+) -> Vec<TypeConstraint> {
+    // make sure that if one is an Expr, it's the left
+    let (left, right) = if let TCSide::Expr(_) = left {
+        (left, right)
+    } else {
+        (right, left)
+    };
+    match (left, right) {
+        (TCSide::Expr(node_id), TCSide::Expr(other_id)) => {
+            if type_map.contains_key(&node_id) {
+                type_map.insert(other_id, type_map.get(&node_id).unwrap().clone());
+                Vec::new()
+            } else if type_map.contains_key(&other_id) {
+                type_map.insert(node_id, type_map.get(&other_id).unwrap().clone());
+                Vec::new()
+            } else {
+                vec![TypeConstraint::new(
+                    TCSide::Expr(node_id),
+                    TCSide::Expr(other_id),
+                )]
+            }
+        }
+        (TCSide::Expr(node_id), other_side) => {
+            let constrained_type = other_side.constrained_type(type_map);
 
-fn find_type_helper<'a>(
-    target: &'a TCSide,
-    substitutions: &'a [TypeConstraint],
-    visited: &mut Vec<&'a TCSide>,
-) -> Option<TCSide> {
-    if let TCSide::Expr(id) = target {
-        substitutions.iter().find_map(|sub| {
-            let mut maybe_result = None;
-            if !visited.contains(&target) {
-                visited.push(target);
-                maybe_result = match &sub {
-                    TypeConstraint {
-                        left: TCSide::Expr(sub_id),
-                        right,
-                    } if sub_id == id => find_type_helper(right, substitutions, visited),
-                    TypeConstraint {
-                        left,
-                        right: TCSide::Expr(sub_id),
-                    } if sub_id == id => find_type_helper(left, substitutions, visited),
-                    TypeConstraint {
-                        left:
-                            TCSide::Constraint {
-                                base_type: TCNodeType::Function,
-                                return_type: left_rt,
-                                parameters: left_params,
-                            },
-                        right:
-                            TCSide::Constraint {
-                                base_type: TCNodeType::Function,
-                                return_type: right_rt,
-                                parameters: right_params,
-                            },
-                    } => {
-                        if left_rt.as_deref().filter(side_id_matcher(*id)).is_some() {
-                            right_rt
-                                .as_deref()
-                                .and_then(|rt| find_type_helper(rt, substitutions, visited))
-                        } else if right_rt.as_deref().filter(side_id_matcher(*id)).is_some() {
-                            left_rt
-                                .as_deref()
-                                .and_then(|rt| find_type_helper(rt, substitutions, visited))
-                        } else if let Some((idx, _)) = left_params
-                            .iter()
-                            .enumerate()
-                            .find(|(_, p)| side_matches_id(p, *id))
-                        {
-                            right_params
-                                .get(idx)
-                                .and_then(|rt| find_type_helper(rt, substitutions, visited))
-                        } else if let Some((idx, _)) = right_params
-                            .iter()
-                            .enumerate()
-                            .find(|(_, p)| side_matches_id(p, *id))
-                        {
-                            left_params
-                                .get(idx)
-                                .and_then(|rt| find_type_helper(rt, substitutions, visited))
-                        } else {
-                            None
+            if let Some(constrained_type) = constrained_type {
+                type_map.insert(node_id, constrained_type);
+                Vec::new()
+            } else if type_map.contains_key(&node_id) {
+                // Something unconstrained in right, but we can fill in with fully constrained left
+                let node_dt = type_map.get(&node_id).unwrap().clone();
+                if let TCSide::Constraint {
+                    base_type: _,
+                    return_type: other_rt,
+                    parameters: other_params,
+                } = other_side
+                {
+                    if let DataType::Function {
+                        return_type: node_rt,
+                        parameters: node_params,
+                    } = node_dt
+                    {
+                        if let Some(TCSide::Expr(rt_id)) = other_rt.as_deref() {
+                            type_map.insert(*rt_id, *node_rt);
+                        }
+
+                        for (other_p, node_p) in other_params.iter().zip(node_params.iter()) {
+                            if let TCSide::Expr(p_id) = other_p {
+                                type_map.insert(*p_id, node_p.clone());
+                            }
                         }
                     }
-                    _ => None,
-                };
-                visited.retain(|item| *item != target);
+
+                    Vec::new()
+                } else {
+                    vec![TypeConstraint::new(TCSide::Expr(node_id), other_side)]
+                }
+            } else {
+                vec![TypeConstraint::new(TCSide::Expr(node_id), other_side)]
             }
-            maybe_result
-        })
-    } else {
-        Some(target.clone())
+        }
+        (
+            TCSide::Constraint {
+                base_type: left_bt,
+                return_type: left_rt,
+                parameters: left_params,
+            },
+            TCSide::Constraint {
+                base_type: right_bt,
+                return_type: right_rt,
+                parameters: right_params,
+            },
+        ) => {
+            if left_bt == right_bt {
+                let mut new_subs = Vec::new();
+                if let (Some(left_rt), Some(right_rt)) = (left_rt, right_rt) {
+                    new_subs.append(&mut insert_if_constrained(*left_rt, *right_rt, type_map));
+                }
+                for (left_p, right_p) in left_params.into_iter().zip(right_params.into_iter()) {
+                    new_subs.append(&mut insert_if_constrained(left_p, right_p, type_map));
+                }
+                new_subs
+            } else {
+                unreachable!("Substitutions should not have mismatched base types")
+            }
+        }
+        _ => unreachable!("either one is an expression or both are constraints"),
     }
 }
 
@@ -425,12 +438,8 @@ fn check_operator_constraints(node: &AstNode) -> Result<(), TypeError> {
         }
         AstNodeType::ReturnStatement(e) => {
             // TODO check against declared return type
-            if let Some(e) = e {
-                check_node_has_type(e)?;
-                check_operator_constraints(e)
-            } else {
-                Ok(())
-            }
+            check_node_has_type(e)?;
+            check_operator_constraints(e)
         }
         AstNodeType::DeclareStatement(lhs, rhs) => {
             check_operator_constraints(lhs)?;
@@ -575,16 +584,12 @@ fn generate_constraints<'a>(
         }
         AstNodeType::ReturnStatement(e) => {
             // TODO check against declared return type
-            if let Some(e) = e {
-                let mut constraints = vec![TypeConstraint::new(
-                    TCSide::Expr(node.id),
-                    TCSide::basic(TCNodeType::Nil),
-                )];
-                constraints.append(&mut generate_constraints(e, scope)?);
-                Ok(constraints)
-            } else {
-                Ok(Vec::new())
-            }
+            let mut constraints = vec![TypeConstraint::new(
+                TCSide::Expr(node.id),
+                TCSide::basic(TCNodeType::Nil),
+            )];
+            constraints.append(&mut generate_constraints(e, scope)?);
+            Ok(constraints)
         }
         AstNodeType::DeclareStatement(lhs, rhs) => {
             let mut constraints = vec![
@@ -708,6 +713,21 @@ fn generate_constraints<'a>(
             ));
 
             constraints.append(&mut generate_constraints(body, func_scope)?);
+
+            match &body.node_type {
+                AstNodeType::Block(stmts, _) => {
+                    for stmt in stmts.iter() {
+                        if let AstNodeType::ReturnStatement(e) = &stmt.node_type {
+                            constraints.push(TypeConstraint::new(
+                                TCSide::Expr(return_type.id),
+                                TCSide::Expr(e.id),
+                            ));
+                        }
+                    }
+                }
+                _ => panic!("Function body must be a body"),
+            }
+
             Ok(constraints)
         }
         AstNodeType::Call { target, args } => {

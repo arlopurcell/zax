@@ -1,9 +1,5 @@
 fun producer(x: int) -> fun(int) -> int {
-    fun add_it(y: int) -> int {
-        return x + y;
-    }
-
-    return add_it;
+    return |y| x + y;
 }
 
 print producer(3)(4);
@@ -11,4 +7,3 @@ print producer(3)(4);
 let add_5 = producer(5);
 print add_5(3);
 print add_5(5);
-
