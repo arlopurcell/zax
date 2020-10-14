@@ -35,7 +35,7 @@ fn mark_roots(vm: &mut VM) -> Vec<i64> {
         .stack
         .0
         .iter()
-        .chain(vm.globals.values())
+        .chain(vm.globals.values().flatten())
         .chain(vm.frames.iter().map(|frame| &frame.function_heap_index))
         .chain(vm.upvalue_allocations.values())
         .chain(
@@ -86,7 +86,7 @@ fn blacken(value: &i64, heap: &mut Heap) -> Vec<i64> {
 
         let ref_values = match &object.value {
             ObjType::NativeFunction(_) | ObjType::Nil | ObjType::Str(_) => Vec::new(),
-            ObjType::Upvalue(ref_idx) => vec![*ref_idx],
+            ObjType::Upvalue(words) => words.clone(),
             ObjType::Function(func) => func
                 .chunk
                 .constants

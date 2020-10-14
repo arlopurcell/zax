@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::iter;
 
 use crate::chunk::ByteCode;
 use crate::code_gen::{ChunkGenerator, FunctionType};
@@ -294,12 +295,13 @@ impl AstNode {
                 for param in params {
                     if let Some(VarLocation::Upvalue(node_id)) = vm.var_locations.get(&param.id) {
                         let node_id = *node_id;
-                        let heap_index = vm.allocate(Object::new(ObjType::Upvalue(0)));
+                        let size = param.data_type.as_ref().expect("param needs data type").size();
+                        let heap_index = vm.allocate(Object::new(ObjType::Upvalue(iter::repeat(0).take(size as usize).collect())));
                         vm.upvalue_allocations.insert(node_id, heap_index);
                         vm.gen()
-                            .emit_byte(ByteCode::GetLocal(param_index), self.line);
-                        vm.gen().emit_byte(ByteCode::SetHeap(heap_index), self.line);
-                        vm.gen().emit_byte(ByteCode::Pop(1), self.line);
+                            .emit_byte(ByteCode::GetLocal(param_index, size), self.line);
+                        vm.gen().emit_byte(ByteCode::SetHeap(heap_index, size), self.line);
+                        vm.gen().emit_byte(ByteCode::Pop(size as usize), self.line);
                     }
                     param_index += param.data_type.unwrap().size() as usize;
                 }
@@ -324,7 +326,7 @@ impl AstNode {
 
                 // Add to second to last chunk generator (not the one for this function)
                 let chunk_gen_index = vm.chunk_generators.len() - 2;
-                vm.chunk_generators[chunk_gen_index].emit_constant(heap_index, self.line);
+                vm.chunk_generators[chunk_gen_index].emit_constant(&[heap_index], self.line);
                 //vm.gen().emit_constant(heap_index, self.line);
 
                 let chunk = vm.chunk_generators.pop().unwrap().end();
@@ -393,6 +395,7 @@ impl AstNode {
                     name,
                     type_annotation: _,
                 } => {
+                    let size = rhs.data_type.as_ref().expect("rhs of declaration needs data type").size();
                     rhs.generate(vm)?;
                     match *vm
                         .var_locations
@@ -404,14 +407,14 @@ impl AstNode {
                             // simply allow result of rhs to remain on the stack
                         }
                         VarLocation::Upvalue(node_id) => {
-                            let heap_index = vm.allocate(Object::new(ObjType::Upvalue(0)));
+                            let heap_index = vm.allocate(Object::new(ObjType::Upvalue(iter::repeat(0).take(size as usize).collect())));
                             vm.upvalue_allocations.insert(node_id, heap_index);
-                            vm.gen().emit_byte(ByteCode::SetHeap(heap_index), self.line);
+                            vm.gen().emit_byte(ByteCode::SetHeap(heap_index, size), self.line);
                         }
                         VarLocation::Global => {
                             let constant = identifier_constant(&name, vm);
                             vm.gen()
-                                .emit_byte(ByteCode::DefineGlobal(constant), self.line)
+                                .emit_byte(ByteCode::DefineGlobal(constant, size), self.line)
                         }
                     }
                 }
@@ -451,11 +454,12 @@ impl AstNode {
                 type_annotation: _,
             } => {
                 if !lvalue {
+                    let size = self.data_type.expect("Variable needs data type").size();
                     let var_locations = &vm.var_locations;
                     match var_locations.get(&self.id).unwrap_or(&VarLocation::Global) {
                         VarLocation::Local(index) => {
                             let gen = vm.chunk_generators.iter_mut().rev().nth(0).unwrap();
-                            gen.emit_byte(ByteCode::GetLocal(*index), self.line)
+                            gen.emit_byte(ByteCode::GetLocal(*index, size), self.line)
                         }
                         VarLocation::Upvalue(node_id) => {
                             let gen = vm.chunk_generators.iter_mut().rev().nth(0).unwrap();
@@ -473,14 +477,14 @@ impl AstNode {
                     }
                 }
             }
-            AstNodeType::IntLiteral(value) => vm.gen().emit_constant(value, self.line),
-            AstNodeType::FloatLiteral(value) => vm.gen().emit_constant(value as i64, self.line),
+            AstNodeType::IntLiteral(value) => vm.gen().emit_constant(&[value], self.line),
+            AstNodeType::FloatLiteral(value) => vm.gen().emit_constant(&[value as i64], self.line),
             AstNodeType::BoolLiteral(value) => {
-                vm.gen().emit_constant(if value { 1 } else { 0 }, self.line)
+                vm.gen().emit_constant(&[if value { 1 } else { 0 }], self.line)
             }
             AstNodeType::StrLiteral(value) => {
                 let heap_index = vm.allocate_string(&value);
-                vm.gen().emit_constant(heap_index, self.line)
+                vm.gen().emit_constant(&[heap_index], self.line)
             }
             AstNodeType::Unary(operator, operand) => {
                 let code = match operator {
@@ -540,7 +544,7 @@ impl AstNode {
                     },
                     Operator::Equal => match &lhs.data_type {
                         Some(DataType::Int) | Some(DataType::Float) | Some(DataType::Bool) => {
-                            ByteCode::Equal
+                            ByteCode::Equal(1)
                         }
                         Some(DataType::Function {
                             return_type: _,
@@ -551,7 +555,7 @@ impl AstNode {
                     },
                     Operator::NotEqual => match &lhs.data_type {
                         Some(DataType::Int) | Some(DataType::Float) | Some(DataType::Bool) => {
-                            ByteCode::NotEqual
+                            ByteCode::NotEqual(1)
                         }
                         Some(DataType::Function {
                             return_type: _,
@@ -561,6 +565,7 @@ impl AstNode {
                         _ => panic!("Invalid type for equal"),
                     },
                     Operator::Assign => {
+                        let size = self.data_type.expect("assign must have data type").size();
                         let code = match &lhs.node_type {
                             AstNodeType::Variable {
                                 name,
@@ -570,17 +575,17 @@ impl AstNode {
                                 .get(&lhs.id)
                                 .unwrap_or(&VarLocation::Global)
                             {
-                                VarLocation::Local(index) => ByteCode::SetLocal(*index),
+                                VarLocation::Local(index) => ByteCode::SetLocal(*index, size),
                                 VarLocation::Upvalue(node_id) => {
                                     let heap_index = vm
                                         .upvalue_allocations
                                         .get(&node_id)
                                         .expect("Unallocated upvalue");
-                                    ByteCode::SetHeap(*heap_index)
+                                    ByteCode::SetHeap(*heap_index, size)
                                 }
                                 VarLocation::Global => {
                                     let constant = identifier_constant(&name, vm);
-                                    ByteCode::SetGlobal(constant)
+                                    ByteCode::SetGlobal(constant, size)
                                 }
                             },
                             // TODO for dotted stuff, recurse
@@ -801,7 +806,7 @@ fn error(line: u32, message: &str) -> InterpretResult {
 
 fn identifier_constant(name: &str, vm: &mut VM) -> u8 {
     let heap_index = vm.allocate_string(name);
-    vm.gen().add_constant(heap_index)
+    vm.gen().add_constant(&[heap_index])
 }
 
 pub fn analyze(ast: &mut AstNode, vm: &mut VM) -> InterpretResult {

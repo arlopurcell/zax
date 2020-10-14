@@ -16,7 +16,7 @@ pub enum ObjType {
     Str(Box<String>),
     Function(Box<FunctionObj>),
     NativeFunction(Box<NativeFunctionObj>),
-    Upvalue(i64), // TODO keep on stack until hoist is required?
+    Upvalue(Vec<i64>), // TODO keep on stack until hoist is required?
     Nil,
 }
 
@@ -84,7 +84,7 @@ impl ObjType {
             Self::Str(s) => s.bytes().len(),
             Self::Function(_) => size_of::<FunctionObj>(),
             Self::NativeFunction(_) => size_of::<FunctionObj>(),
-            Self::Upvalue(_) => size_of::<i64>(),
+            Self::Upvalue(words) => words.len(),
             Self::Nil => 0,
         }
     }

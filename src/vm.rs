@@ -13,7 +13,7 @@ use crate::object::{FunctionObj, NativeFunctionObj, ObjType, Object};
 pub struct VM {
     pub stack: Stack,
     pub heap: Heap,
-    pub globals: HashMap<String, i64>,
+    pub globals: HashMap<String, Vec<i64>>,
     pub frames: Vec<CallFrame>,
 
     // Compile time stuff
@@ -108,6 +108,11 @@ impl Stack {
         self.skip_peek(0)
     }
 
+    fn peek_bulk(&self, size: usize) -> &[i64] {
+        &self.0[self.0.len() - size - 1..]
+    }
+
+
     fn pop_bool(&mut self) -> bool {
         self.pop() != 0
     }
@@ -124,16 +129,22 @@ impl Stack {
         self.0.extend_from_slice(values)
     }
 
+    fn copy_to_top(&mut self, index: usize, size: usize) -> () {
+        //TODO optimize?
+        for i in 0..size {
+            self.0.push(self.0[index + i])
+        }
+    }
+
+    fn copy_from_top(&mut self, index: usize, size: usize) -> () {
+        //TODO optimize?
+        for i in 0..size {
+            self.0[index + i] = self.0[self.0.len() - size + i]
+        }
+    }
+
     fn push_bool(&mut self, val: bool) -> () {
         self.push(if val { 1 } else { 0 })
-    }
-
-    fn get(&self, index: usize) -> i64 {
-        self.0[index]
-    }
-
-    fn set(&mut self, index: usize, value: i64) -> () {
-        self.0[index] = value
     }
 }
 
@@ -215,7 +226,7 @@ impl VM {
     fn define_native(&mut self, func_obj: NativeFunctionObj) -> () {
         let name = func_obj.name().to_string();
         let heap_index = self.allocate(Object::new(ObjType::NativeFunction(Box::new(func_obj))));
-        self.globals.insert(name, heap_index);
+        self.globals.insert(name, vec![heap_index]);
     }
 
     fn pop_heap_2(&mut self) -> (&Object, &Object) {
@@ -288,9 +299,9 @@ impl VM {
                     let value = heap.get(&heap_ref);
                     println!("{}", value.print(&heap))
                 }
-                ByteCode::Constant(constant) => {
-                    let constant = current_frame.chunk(&self.heap).get_constant(&constant);
-                    stack.push(constant)
+                ByteCode::Constant(constant, size) => {
+                    let constant = current_frame.chunk(&self.heap).get_constant(&constant, &size);
+                    stack.push_bulk(constant)
                 }
                 ByteCode::NegateInt => {
                     let arg = self.stack.pop();
@@ -384,14 +395,14 @@ impl VM {
                     let a = self.stack.pop() as f64;
                     self.stack.push_bool(a <= b)
                 }
-                ByteCode::Equal => {
-                    let b = self.stack.pop();
-                    let a = self.stack.pop();
+                ByteCode::Equal(size) => {
+                    let b = self.stack.pop_bulk(size as usize);
+                    let a = self.stack.pop_bulk(size as usize);
                     self.stack.push_bool(a == b);
                 }
-                ByteCode::NotEqual => {
-                    let b = self.stack.pop();
-                    let a = self.stack.pop();
+                ByteCode::NotEqual(size) => {
+                    let b = self.stack.pop_bulk(size as usize);
+                    let a = self.stack.pop_bulk(size as usize);
                     self.stack.push_bool(a != b);
                 }
                 ByteCode::EqualHeap => {
@@ -413,42 +424,37 @@ impl VM {
                 ByteCode::Pop(n) => {
                     self.stack.pop_bulk(n);
                 }
-                ByteCode::DefineGlobal(constant) => {
+                ByteCode::DefineGlobal(constant, size) => {
                     let constant = self
                         .current_frame()
                         .chunk(&self.heap)
-                        .get_constant(&constant);
-                    let name = self.heap.get(&constant).as_string().to_string();
-                    let value = self.stack.pop();
-                    self.globals.insert(name, value);
+                        .get_constant(&constant, &1);
+                    let name = self.heap.get(&constant[0]).as_string().to_string();
+                    let value = self.stack.pop_bulk(size as usize);
+                    self.globals.insert(name, value.to_vec());
                 }
                 ByteCode::GetGlobal(constant) => {
                     let constant = self
                         .current_frame()
                         .chunk(&self.heap)
-                        .get_constant(&constant);
-                    let name = self.heap.get(&constant).as_string().to_string();
+                        .get_constant(&constant, &1);
+                    let name = self.heap.get(&constant[0]).as_string().to_string();
                     if let Some(value) = self.globals.get(&name) {
-                        self.stack.push(*value)
+                        self.stack.push_bulk(value)
                     } else {
                         // TODO static analysis for variable usage
                         self.runtime_error(&format!("Undefined variable {}", name));
                         return Err(InterpretError::Runtime);
                     }
                 }
-                ByteCode::SetGlobal(constant) => {
+                ByteCode::SetGlobal(constant, size) => {
                     let constant = self
                         .current_frame()
                         .chunk(&self.heap)
-                        .get_constant(&constant);
-                    let name = self.heap.get(&constant).as_string();
-                    let value = self.stack.peek();
-                    let already_defined = if let None = self.globals.insert(name.to_string(), value)
-                    {
-                        true
-                    } else {
-                        false
-                    };
+                        .get_constant(&constant, &1);
+                    let name = self.heap.get(&constant[0]).as_string();
+                    let value = self.stack.peek_bulk(size as usize);
+                    let already_defined = self.globals.insert(name.to_string(), value.to_vec()).is_none();
                     if already_defined {
                         // TODO static analysis for variable usage
                         // It was already defined
@@ -457,13 +463,11 @@ impl VM {
                         return Err(InterpretError::Runtime);
                     }
                 }
-                ByteCode::GetLocal(index) => {
-                    let value = self.stack.get(index + current_frame.stack_index);
-                    self.stack.push(value)
+                ByteCode::GetLocal(index, size) => {
+                    self.stack.copy_to_top(index + current_frame.stack_index, size as usize)
                 }
-                ByteCode::SetLocal(index) => {
-                    let value = self.stack.peek();
-                    self.stack.set(index + current_frame.stack_index, value)
+                ByteCode::SetLocal(index, size) => {
+                    self.stack.copy_from_top(index + current_frame.stack_index, size as usize)
                 }
                 ByteCode::JumpIfFalse(offset) => {
                     if !self.stack.peek_bool() {
@@ -493,17 +497,18 @@ impl VM {
                     }
                 }
                 ByteCode::NoOp => (),
-                ByteCode::SetHeap(index) => {
-                    let value = self.stack.peek();
-                    if let ObjType::Upvalue(bytes) = &mut heap.get_mut(&index).value {
-                        *bytes = value
+                ByteCode::SetHeap(index, size) => {
+                    let value = self.stack.peek_bulk(size as usize);
+                    if let ObjType::Upvalue(words) = &mut heap.get_mut(&index).value {
+                        words.clear();
+                        words.extend_from_slice(value);
                     } else {
                         panic!("should be upvalue")
                     }
                 }
                 ByteCode::GetHeap(index) => {
                     if let ObjType::Upvalue(value) = &heap.get(&index).value {
-                        self.stack.push(*value);
+                        self.stack.push_bulk(value);
                     } else {
                         panic!("should be upvalue")
                     }

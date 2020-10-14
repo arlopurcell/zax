@@ -7,7 +7,7 @@ pub enum ByteCode {
     PrintFloat,
     PrintBool,
     PrintObject,
-    Constant(u8),
+    Constant(u8, u8),
     NegateInt,
     AddInt,
     SubInt,
@@ -27,24 +27,24 @@ pub enum ByteCode {
     LessFloat,
     GreaterEqualFloat,
     LessEqualFloat,
-    Equal,
-    NotEqual,
+    Equal(u8),
+    NotEqual(u8),
     EqualHeap,
     NotEqualHeap,
     Concat,
     Pop(usize),
-    DefineGlobal(u8),
+    DefineGlobal(u8, u8),
     GetGlobal(u8),
-    SetGlobal(u8),
-    GetLocal(usize),
-    SetLocal(usize),
+    SetGlobal(u8, u8),
+    GetLocal(usize, u8),
+    SetLocal(usize, u8),
     // Two code gap here
     JumpIfFalse(u16),
     Jump(u16),
     Loop(u16),
     Call(usize),
     NoOp,
-    SetHeap(i64),
+    SetHeap(i64, u8),
     GetHeap(i64),
 }
 
@@ -77,21 +77,24 @@ impl ByteCode {
             | Self::EqualHeap
             | Self::NotEqualHeap
             | Self::Concat
-            | Self::Equal
-            | Self::NotEqual
             | Self::NoOp => 1,
             Self::Return(_)
-            | Self::Constant(_)
-            | Self::DefineGlobal(_)
+            | Self::Equal(_)
+            | Self::NotEqual(_)
             | Self::GetGlobal(_)
-            | Self::SetGlobal(_) => 2,
-            Self::JumpIfFalse(_) | Self::Jump(_) | Self::Loop(_) => 3,
+            => 2,
+            Self::JumpIfFalse(_) | Self::Jump(_) | Self::Loop(_)
+            | Self::Constant(_, _)
+            | Self::DefineGlobal(_, _)
+            | Self::SetGlobal(_, _)
+                => 3,
             Self::Pop(_)
             | Self::GetHeap(_)
-            | Self::Call(_)
-            | Self::GetLocal(_)
-            | Self::SetLocal(_)
-            | Self::SetHeap(_) => 9,
+            | Self::Call(_) => 9,
+            Self::GetLocal(_, _)
+            | Self::SetLocal(_, _)
+            | Self::SetHeap(_, _)
+             => 10,
         }
     }
 }
@@ -132,7 +135,7 @@ impl Chunk {
             0x2 => ByteCode::PrintFloat,
             0x3 => ByteCode::PrintBool,
             0x4 => ByteCode::PrintObject,
-            0x5 => ByteCode::Constant(self.get_u8(offset + 1)),
+            0x5 => ByteCode::Constant(self.get_u8(offset + 1), self.get_u8(offset + 2)),
             0x6 => ByteCode::NegateInt,
             0x7 => ByteCode::AddInt,
             0x8 => ByteCode::SubInt,
@@ -152,24 +155,24 @@ impl Chunk {
             0x16 => ByteCode::LessFloat,
             0x17 => ByteCode::GreaterEqualFloat,
             0x18 => ByteCode::LessEqualFloat,
-            0x19 => ByteCode::Equal,
-            0x1a => ByteCode::NotEqual,
+            0x19 => ByteCode::Equal(self.get_u8(offset + 1)),
+            0x1a => ByteCode::NotEqual(self.get_u8(offset + 1)),
             0x1b => ByteCode::EqualHeap,
             0x1c => ByteCode::NotEqualHeap,
             0x1d => ByteCode::Concat,
             0x1e => ByteCode::Pop(self.get_usize(offset + 1)),
-            0x1f => ByteCode::DefineGlobal(self.get_u8(offset + 1)),
+            0x1f => ByteCode::DefineGlobal(self.get_u8(offset + 1), self.get_u8(offset + 2)),
             0x20 => ByteCode::GetGlobal(self.get_u8(offset + 1)),
-            0x21 => ByteCode::SetGlobal(self.get_u8(offset + 1)),
-            0x22 => ByteCode::GetLocal(self.get_usize(offset + 1)),
-            0x23 => ByteCode::SetLocal(self.get_usize(offset + 1)),
+            0x21 => ByteCode::SetGlobal(self.get_u8(offset + 1), self.get_u8(offset + 2)),
+            0x22 => ByteCode::GetLocal(self.get_usize(offset + 1), self.get_u8(offset + 9)),
+            0x23 => ByteCode::SetLocal(self.get_usize(offset + 1), self.get_u8(offset + 9)),
             // Two code gap here
             0x26 => ByteCode::JumpIfFalse(self.get_u16(offset + 1)),
             0x27 => ByteCode::Jump(self.get_u16(offset + 1)),
             0x28 => ByteCode::Loop(self.get_u16(offset + 1)),
             0x29 => ByteCode::Call(self.get_usize(offset + 1)),
             0x2a => ByteCode::NoOp,
-            0x2b => ByteCode::SetHeap(self.get_i64(offset + 1)),
+            0x2b => ByteCode::SetHeap(self.get_i64(offset + 1), self.get_u8(offset + 9)),
             0x2c => ByteCode::GetHeap(self.get_i64(offset + 1)),
             _ => panic!("Invalid byte code: {}", byte),
         }
@@ -179,9 +182,9 @@ impl Chunk {
         self.lines[offset]
     }
 
-    pub fn get_constant(&self, constant: &u8) -> i64 {
+    pub fn get_constant(&self, constant: &u8, size: &u8) -> &[i64] {
         let idx = *constant as usize;
-        self.constants[idx]
+        &self.constants[idx..idx+(*size as usize)]
     }
 
     #[cfg(feature = "debug-logging")]
@@ -249,9 +252,11 @@ impl Chunk {
                 self.code.push(0x4);
                 self.lines.push(line);
             }
-            ByteCode::Constant(arg) => {
+            ByteCode::Constant(arg, size) => {
                 self.code.push(0x5);
                 self.code.push(arg);
+                self.code.push(size);
+                self.lines.push(line);
                 self.lines.push(line);
                 self.lines.push(line);
             }
@@ -331,11 +336,15 @@ impl Chunk {
                 self.code.push(0x18);
                 self.lines.push(line);
             }
-            ByteCode::Equal => {
+            ByteCode::Equal(size) => {
                 self.code.push(0x19);
+                self.code.push(size);
+                self.lines.push(line);
                 self.lines.push(line);
             }
-            ByteCode::NotEqual => {
+            ByteCode::NotEqual(size) => {
+                self.code.push(size);
+                self.lines.push(line);
                 self.code.push(0x1a);
                 self.lines.push(line);
             }
@@ -356,9 +365,11 @@ impl Chunk {
                 self.code.extend_from_slice(&n.to_be_bytes());
                 self.lines.extend_from_slice(&[line; 9]);
             }
-            ByteCode::DefineGlobal(arg) => {
+            ByteCode::DefineGlobal(arg, size) => {
                 self.code.push(0x1f);
                 self.code.push(arg);
+                self.code.push(size);
+                self.lines.push(line);
                 self.lines.push(line);
                 self.lines.push(line);
             }
@@ -368,21 +379,25 @@ impl Chunk {
                 self.lines.push(line);
                 self.lines.push(line);
             }
-            ByteCode::SetGlobal(arg) => {
+            ByteCode::SetGlobal(arg, size) => {
                 self.code.push(0x21);
                 self.code.push(arg);
+                self.code.push(size);
+                self.lines.push(line);
                 self.lines.push(line);
                 self.lines.push(line);
             }
-            ByteCode::GetLocal(arg) => {
+            ByteCode::GetLocal(arg, size) => {
                 self.code.push(0x22);
                 self.code.extend_from_slice(&arg.to_be_bytes());
-                self.lines.extend_from_slice(&[line; 9]);
+                self.code.push(size);
+                self.lines.extend_from_slice(&[line; 10]);
             }
-            ByteCode::SetLocal(arg) => {
+            ByteCode::SetLocal(arg, size) => {
                 self.code.push(0x23);
                 self.code.extend_from_slice(&arg.to_be_bytes());
-                self.lines.extend_from_slice(&[line; 9]);
+                self.code.push(size);
+                self.lines.extend_from_slice(&[line; 10]);
             }
             // Two code gap here
             ByteCode::JumpIfFalse(arg) => {
@@ -409,10 +424,11 @@ impl Chunk {
                 self.code.push(0x2a);
                 self.lines.push(line);
             }
-            ByteCode::SetHeap(arg) => {
+            ByteCode::SetHeap(arg, size) => {
                 self.code.push(0x2b);
                 self.code.extend_from_slice(&arg.to_be_bytes());
-                self.lines.extend_from_slice(&[line; 9]);
+                self.code.push(size);
+                self.lines.extend_from_slice(&[line; 10]);
             }
             ByteCode::GetHeap(arg) => {
                 self.code.push(0x2c);
@@ -422,9 +438,9 @@ impl Chunk {
         }
     }
 
-    pub fn add_constant(&mut self, value: i64) -> u8 {
+    pub fn add_constant(&mut self, value: &[i64]) -> u8 {
         let index = self.constants.len();
-        self.constants.push(value);
+        self.constants.extend_from_slice(value);
         u8::try_from(index).ok().expect("Too many constants")
     }
 

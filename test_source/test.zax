@@ -1,9 +1,14 @@
-fun producer(x: int) -> fun(int) -> int {
-    return |y| x + y;
+let a = 2;
+{
+    let b = 3;
+    let c = 9;
+    {
+        let d = 4;
+        a = 1;
+        c = 5;
+        print a;
+        print b; 
+        print c;
+        print d;
+    }
 }
-
-print producer(3)(4);
-
-let add_5 = producer(5);
-print add_5(3);
-print add_5(5);

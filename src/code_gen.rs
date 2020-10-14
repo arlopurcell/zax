@@ -24,12 +24,12 @@ impl ChunkGenerator {
         self.chunk.append(code, line)
     }
 
-    pub fn emit_constant(&mut self, value: i64, line: u32) -> () {
+    pub fn emit_constant(&mut self, value: &[i64], line: u32) -> () {
         let constant = self.chunk.add_constant(value);
-        self.emit_byte(ByteCode::Constant(constant), line)
+        self.emit_byte(ByteCode::Constant(constant, value.len() as u8), line)
     }
 
-    pub fn add_constant(&mut self, value: i64) -> u8 {
+    pub fn add_constant(&mut self, value: &[i64]) -> u8 {
         self.chunk.add_constant(value)
     }
 
