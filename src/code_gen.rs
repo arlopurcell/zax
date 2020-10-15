@@ -50,7 +50,7 @@ impl ChunkGenerator {
     pub fn patch_jump(&mut self, index: usize) -> () {
         // Emit noop byte so we know the size of the last byte code
         self.emit_byte(ByteCode::NoOp, 0); // TODO fix line?
-        // calculate offset from absolute index
+                                           // calculate offset from absolute index
         let jump = (self.chunk.code_len() - 1 - index - 3) as u16;
         //          (   size of chunk code  )     |     |
         //                                        |     |
