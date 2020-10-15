@@ -44,12 +44,20 @@ impl ChunkGenerator {
     fn emit_jump_code(&mut self, code: ByteCode, line: u32) -> usize {
         self.emit_byte(code, line);
         // -1 to get the index of the last element
-        self.chunk.code_len() - 1
+        self.chunk.code_len() - code.size() as usize
     }
 
     pub fn patch_jump(&mut self, index: usize) -> () {
+        // Emit noop byte so we know the size of the last byte code
+        self.emit_byte(ByteCode::NoOp, 0); // TODO fix line?
         // calculate offset from absolute index
-        let jump = (self.chunk.code_len() - 1 - index) as u16;
+        let jump = (self.chunk.code_len() - 1 - index - 3) as u16;
+        //          (   size of chunk code  )     |     |
+        //                                        |     |
+        //                  where are we jumping from   |
+        //                                              |
+        // ip points the instruction after the jump, so we
+        // account for the size of the jump instruction
 
         if jump > u16::MAX {
             // TODO make compiler error
@@ -59,7 +67,9 @@ impl ChunkGenerator {
         self.chunk.patch_jump(index, jump)
     }
 
-    pub fn loop_start(&self) -> usize {
+    pub fn loop_start(&mut self, line: u32) -> usize {
+        // Emit noop byte so we know the size of the last byte code
+        self.emit_byte(ByteCode::NoOp, line);
         self.chunk.code_len() - 1
     }
 

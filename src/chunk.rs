@@ -449,7 +449,7 @@ impl Chunk {
 
     pub fn patch_jump(&mut self, index: usize, offset: u16) -> () {
         let offset_bytes = offset.to_be_bytes();
-        self.code[index - 1] = offset_bytes[0];
-        self.code[index] = offset_bytes[1];
+        self.code[index + 1] = offset_bytes[0];
+        self.code[index + 2] = offset_bytes[1];
     }
 }

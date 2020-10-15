@@ -486,7 +486,7 @@ impl VM {
                 }
                 ByteCode::Call(args_bytes) => {
                     let heap_index = stack.skip_peek(args_bytes);
-                    let object = self.heap.get(&heap_index);
+                    let object = heap.get(&heap_index);
                     if let ObjType::NativeFunction(func_obj) = &object.value {
                         let args_bytes = func_obj.arg_bytes();
                         let args = self.stack.pop_bulk(args_bytes);
@@ -495,7 +495,10 @@ impl VM {
                         let frame = CallFrame::new(heap_index, self.stack.len() - (args_bytes + 1)); // To account for function object
 
                         #[cfg(feature = "debug-logging")]
-                        frame.chunk(&self.heap).disassemble("function"); // TODO get/use function name
+                        {
+                            let name = frame.func_obj(heap).name(heap);
+                            frame.chunk(heap).disassemble(&name); // TODO get/use function name
+                        }
 
                         self.frames.push(frame);
                     }

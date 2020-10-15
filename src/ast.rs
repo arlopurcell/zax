@@ -60,7 +60,7 @@ pub enum AstNodeType {
         expression: Box<AstNode>,
         scope_words: usize,
     },
-    IfStatement(Box<AstNode>, Box<AstNode>, Box<AstNode>),
+    IfExpression(Box<AstNode>, Box<AstNode>, Box<AstNode>),
     Program(Vec<AstNode>),
 
     TypeAnnotation,
@@ -473,7 +473,7 @@ impl AstNode {
                 vm.gen()
                     .emit_byte(ByteCode::PopSkip(scope_words, size), self.line)
             }
-            AstNodeType::IfStatement(condition, then_block, else_block) => {
+            AstNodeType::IfExpression(condition, then_block, else_block) => {
                 condition.generate(vm)?;
                 let then_jump = vm.gen().emit_jump_if_false(self.line);
 
@@ -488,7 +488,7 @@ impl AstNode {
                 vm.gen().patch_jump(else_jump);
             }
             AstNodeType::WhileStatement(condition, loop_block) => {
-                let loop_start = vm.gen().loop_start();
+                let loop_start = vm.gen().loop_start(self.line);
                 condition.generate(vm)?;
                 let exit_jump = vm.gen().emit_jump_if_false(self.line);
                 vm.gen().emit_byte(ByteCode::Pop(1), self.line); // pop condition
@@ -701,7 +701,7 @@ impl AstNode {
                 scope = lhs.resolve_variables(scope, vm);
                 rhs.resolve_variables(scope, vm)
             }
-            AstNodeType::IfStatement(cond, t_block, f_block) => {
+            AstNodeType::IfExpression(cond, t_block, f_block) => {
                 scope = cond.resolve_variables(scope, vm);
                 scope = t_block.resolve_variables(scope, vm);
                 f_block.resolve_variables(scope, vm)
@@ -811,7 +811,7 @@ impl AstNode {
                 lhs.resolve_types(type_map)?;
                 rhs.resolve_types(type_map)?;
             }
-            AstNodeType::IfStatement(condition, then_block, else_block) => {
+            AstNodeType::IfExpression(condition, then_block, else_block) => {
                 condition.resolve_types(type_map)?;
                 then_block.resolve_types(type_map)?;
                 else_block.resolve_types(type_map)?;

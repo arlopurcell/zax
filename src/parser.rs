@@ -376,8 +376,6 @@ impl<'a> Parser<'a> {
     fn statement(&mut self) -> AstNode {
         if self.match_tok(TokenType::Print) {
             self.print_statement()
-        } else if self.match_tok(TokenType::If) {
-            self.if_statement()
         } else if self.match_tok(TokenType::While) {
             self.while_statement()
         } else if self.match_tok(TokenType::Return) {
@@ -395,7 +393,6 @@ impl<'a> Parser<'a> {
             if self.check(TokenType::Let)
                 || self.check(TokenType::Fun)
                 || self.check(TokenType::Print)
-                || self.check(TokenType::If)
                 || self.check(TokenType::While)
                 || self.check(TokenType::Return)
             {
@@ -430,14 +427,14 @@ impl<'a> Parser<'a> {
         )
     }
 
-    fn if_statement(&mut self) -> AstNode {
+    fn if_expression(&mut self) -> AstNode {
         let condition = self.expression();
         let line = self.previous.line;
         self.consume(TokenType::LeftBrace, "Expect '{' after if condition.");
         let then_block = self.block();
         let else_block = if self.match_tok(TokenType::Else) {
             if self.match_tok(TokenType::If) {
-                self.if_statement()
+                self.if_expression()
             } else {
                 self.consume(TokenType::LeftBrace, "Expect '{' or 'if' after else");
                 self.block()
@@ -456,7 +453,7 @@ impl<'a> Parser<'a> {
         AstNode::new(
             self.id(),
             line,
-            AstNodeType::IfStatement(
+            AstNodeType::IfExpression(
                 Box::new(condition),
                 Box::new(then_block),
                 Box::new(else_block),
@@ -517,6 +514,8 @@ impl<'a> Parser<'a> {
     fn expression(&mut self) -> AstNode {
         if self.match_tok(TokenType::LeftBrace) {
             self.block()
+        } else if self.match_tok(TokenType::If) {
+            self.if_expression()
         } else {
             self.parse_precedence(Precedence::Base)
         }

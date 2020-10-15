@@ -99,8 +99,8 @@ impl FunctionObj {
         }
     }
 
-    pub fn name(&self, heap: &Heap) -> String {
-        heap.get(&self.name_index).print(heap)
+    pub fn name<'a>(&'a self, heap: &'a Heap) -> &'a str {
+        heap.get(&self.name_index).as_string()
     }
 }
 

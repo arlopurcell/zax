@@ -49,3 +49,4 @@ zax_test!(bad_add, 1);
 zax_test!(first_class_fun);
 zax_test!(first_class_lambda);
 zax_test!(block_expression);
+zax_test!(fib_implicit_return);
