@@ -112,7 +112,6 @@ impl Stack {
         &self.0[self.0.len() - size - 1..]
     }
 
-
     fn pop_bool(&mut self) -> bool {
         self.pop() != 0
     }
@@ -300,7 +299,9 @@ impl VM {
                     println!("{}", value.print(&heap))
                 }
                 ByteCode::Constant(constant, size) => {
-                    let constant = current_frame.chunk(&self.heap).get_constant(&constant, &size);
+                    let constant = current_frame
+                        .chunk(&self.heap)
+                        .get_constant(&constant, &size);
                     stack.push_bulk(constant)
                 }
                 ByteCode::NegateInt => {
@@ -454,7 +455,10 @@ impl VM {
                         .get_constant(&constant, &1);
                     let name = self.heap.get(&constant[0]).as_string();
                     let value = self.stack.peek_bulk(size as usize);
-                    let already_defined = self.globals.insert(name.to_string(), value.to_vec()).is_none();
+                    let already_defined = self
+                        .globals
+                        .insert(name.to_string(), value.to_vec())
+                        .is_none();
                     if already_defined {
                         // TODO static analysis for variable usage
                         // It was already defined
@@ -463,12 +467,12 @@ impl VM {
                         return Err(InterpretError::Runtime);
                     }
                 }
-                ByteCode::GetLocal(index, size) => {
-                    self.stack.copy_to_top(index + current_frame.stack_index, size as usize)
-                }
-                ByteCode::SetLocal(index, size) => {
-                    self.stack.copy_from_top(index + current_frame.stack_index, size as usize)
-                }
+                ByteCode::GetLocal(index, size) => self
+                    .stack
+                    .copy_to_top(index + current_frame.stack_index, size as usize),
+                ByteCode::SetLocal(index, size) => self
+                    .stack
+                    .copy_from_top(index + current_frame.stack_index, size as usize),
                 ByteCode::JumpIfFalse(offset) => {
                     if !self.stack.peek_bool() {
                         current_frame.jump(offset);
@@ -512,6 +516,11 @@ impl VM {
                     } else {
                         panic!("should be upvalue")
                     }
+                }
+                ByteCode::PopSkip(n, size) => {
+                    let skipped = self.stack.pop_bulk(size as usize);
+                    self.stack.pop_bulk(n);
+                    self.stack.push_bulk(&skipped);
                 }
             }
         }

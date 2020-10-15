@@ -46,6 +46,7 @@ pub enum ByteCode {
     NoOp,
     SetHeap(i64, u8),
     GetHeap(i64),
+    PopSkip(usize, u8),
 }
 
 impl ByteCode {
@@ -78,23 +79,18 @@ impl ByteCode {
             | Self::NotEqualHeap
             | Self::Concat
             | Self::NoOp => 1,
-            Self::Return(_)
-            | Self::Equal(_)
-            | Self::NotEqual(_)
-            | Self::GetGlobal(_)
-            => 2,
-            Self::JumpIfFalse(_) | Self::Jump(_) | Self::Loop(_)
+            Self::Return(_) | Self::Equal(_) | Self::NotEqual(_) | Self::GetGlobal(_) => 2,
+            Self::JumpIfFalse(_)
+            | Self::Jump(_)
+            | Self::Loop(_)
             | Self::Constant(_, _)
             | Self::DefineGlobal(_, _)
-            | Self::SetGlobal(_, _)
-                => 3,
-            Self::Pop(_)
-            | Self::GetHeap(_)
-            | Self::Call(_) => 9,
+            | Self::SetGlobal(_, _) => 3,
+            Self::Pop(_) | Self::GetHeap(_) | Self::Call(_) => 9,
             Self::GetLocal(_, _)
             | Self::SetLocal(_, _)
             | Self::SetHeap(_, _)
-             => 10,
+            | Self::PopSkip(_, _) => 10,
         }
     }
 }
@@ -174,6 +170,7 @@ impl Chunk {
             0x2a => ByteCode::NoOp,
             0x2b => ByteCode::SetHeap(self.get_i64(offset + 1), self.get_u8(offset + 9)),
             0x2c => ByteCode::GetHeap(self.get_i64(offset + 1)),
+            0x2d => ByteCode::PopSkip(self.get_usize(offset + 1), self.get_u8(offset + 9)),
             _ => panic!("Invalid byte code: {}", byte),
         }
     }
@@ -184,7 +181,7 @@ impl Chunk {
 
     pub fn get_constant(&self, constant: &u8, size: &u8) -> &[i64] {
         let idx = *constant as usize;
-        &self.constants[idx..idx+(*size as usize)]
+        &self.constants[idx..idx + (*size as usize)]
     }
 
     #[cfg(feature = "debug-logging")]
@@ -434,6 +431,12 @@ impl Chunk {
                 self.code.push(0x2c);
                 self.code.extend_from_slice(&arg.to_be_bytes());
                 self.lines.extend_from_slice(&[line; 9]);
+            }
+            ByteCode::PopSkip(n, size) => {
+                self.code.push(0x2d);
+                self.code.extend_from_slice(&n.to_be_bytes());
+                self.code.push(size);
+                self.lines.extend_from_slice(&[line; 10]);
             }
         }
     }

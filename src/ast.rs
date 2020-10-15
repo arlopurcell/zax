@@ -5,7 +5,9 @@ use crate::chunk::ByteCode;
 use crate::code_gen::{ChunkGenerator, FunctionType};
 use crate::common::{InterpretError, InterpretResult};
 use crate::object::{FunctionObj, ObjType, Object};
-use crate::type_check::{create_type_map, final_type_check, generate_substitutions, DataType};
+use crate::type_check::{
+    check_operator_constraints, create_type_map, generate_substitutions, DataType,
+};
 use crate::vm::VM;
 
 #[derive(Debug, Clone)]
@@ -53,7 +55,11 @@ pub enum AstNodeType {
     PrintStatement(Box<AstNode>),
     ExpressionStatement(Box<AstNode>),
     ReturnStatement(Box<AstNode>),
-    Block(Vec<AstNode>, usize),
+    Block {
+        statements: Vec<AstNode>,
+        expression: Box<AstNode>,
+        scope_words: usize,
+    },
     IfStatement(Box<AstNode>, Box<AstNode>, Box<AstNode>),
     Program(Vec<AstNode>),
 
@@ -232,7 +238,7 @@ pub enum Operator {
 }
 
 impl AstNode {
-    pub fn new(id: u64, line: u32, node_type: AstNodeType) -> Self {
+    pub fn new(id: NodeId, line: u32, node_type: AstNodeType) -> Self {
         Self {
             id,
             line,
@@ -247,13 +253,17 @@ impl AstNode {
         }
     }
 
-    pub fn type_annotation(id: u64, line: u32, data_type: DataType) -> Self {
+    pub fn type_annotation(id: NodeId, line: u32, data_type: DataType) -> Self {
         Self {
             id,
             line,
             data_type: Some(data_type),
             node_type: AstNodeType::TypeAnnotation,
         }
+    }
+
+    pub fn empty(id: NodeId, line: u32) -> Self {
+        Self::type_annotation(id, line, DataType::Nil)
     }
 
     fn var_node_name(&self) -> &str {
@@ -295,23 +305,42 @@ impl AstNode {
                 for param in params {
                     if let Some(VarLocation::Upvalue(node_id)) = vm.var_locations.get(&param.id) {
                         let node_id = *node_id;
-                        let size = param.data_type.as_ref().expect("param needs data type").size();
-                        let heap_index = vm.allocate(Object::new(ObjType::Upvalue(iter::repeat(0).take(size as usize).collect())));
+                        let size = param
+                            .data_type
+                            .as_ref()
+                            .expect("param needs data type")
+                            .size();
+                        let heap_index = vm.allocate(Object::new(ObjType::Upvalue(
+                            iter::repeat(0).take(size as usize).collect(),
+                        )));
                         vm.upvalue_allocations.insert(node_id, heap_index);
                         vm.gen()
                             .emit_byte(ByteCode::GetLocal(param_index, size), self.line);
-                        vm.gen().emit_byte(ByteCode::SetHeap(heap_index, size), self.line);
+                        vm.gen()
+                            .emit_byte(ByteCode::SetHeap(heap_index, size), self.line);
                         vm.gen().emit_byte(ByteCode::Pop(size as usize), self.line);
                     }
                     param_index += param.data_type.unwrap().size() as usize;
                 }
 
-                // TODO maybe just recurse for body. there's an extra popn but whatever
                 match body.node_type {
-                    AstNodeType::Block(statements, _) => {
+                    AstNodeType::Block {
+                        statements,
+                        expression,
+                        scope_words: _,
+                    } => {
                         for s in statements {
                             s.generate(vm)?;
                         }
+
+                        let size = expression
+                            .data_type
+                            .as_ref()
+                            .expect("Implicit return value must be typed")
+                            .size();
+                        let expression_line = expression.line;
+                        expression.generate(vm)?;
+                        vm.gen().emit_byte(ByteCode::Return(size), expression_line)
                     }
                     _ => panic!("Invalid node type for function body"),
                 }
@@ -395,7 +424,11 @@ impl AstNode {
                     name,
                     type_annotation: _,
                 } => {
-                    let size = rhs.data_type.as_ref().expect("rhs of declaration needs data type").size();
+                    let size = rhs
+                        .data_type
+                        .as_ref()
+                        .expect("rhs of declaration needs data type")
+                        .size();
                     rhs.generate(vm)?;
                     match *vm
                         .var_locations
@@ -407,9 +440,12 @@ impl AstNode {
                             // simply allow result of rhs to remain on the stack
                         }
                         VarLocation::Upvalue(node_id) => {
-                            let heap_index = vm.allocate(Object::new(ObjType::Upvalue(iter::repeat(0).take(size as usize).collect())));
+                            let heap_index = vm.allocate(Object::new(ObjType::Upvalue(
+                                iter::repeat(0).take(size as usize).collect(),
+                            )));
                             vm.upvalue_allocations.insert(node_id, heap_index);
-                            vm.gen().emit_byte(ByteCode::SetHeap(heap_index, size), self.line);
+                            vm.gen()
+                                .emit_byte(ByteCode::SetHeap(heap_index, size), self.line);
                         }
                         VarLocation::Global => {
                             let constant = identifier_constant(&name, vm);
@@ -420,11 +456,22 @@ impl AstNode {
                 }
                 _ => panic!("Invalid lhs for let"),
             },
-            AstNodeType::Block(statements, block_bytes) => {
+            AstNodeType::Block {
+                statements,
+                expression,
+                scope_words,
+            } => {
                 for s in statements {
                     s.generate(vm)?;
                 }
-                vm.gen().emit_byte(ByteCode::Pop(block_bytes), self.line)
+                let size = expression
+                    .data_type
+                    .as_ref()
+                    .expect("Expression must have type")
+                    .size();
+                expression.generate(vm)?;
+                vm.gen()
+                    .emit_byte(ByteCode::PopSkip(scope_words, size), self.line)
             }
             AstNodeType::IfStatement(condition, then_block, else_block) => {
                 condition.generate(vm)?;
@@ -479,9 +526,9 @@ impl AstNode {
             }
             AstNodeType::IntLiteral(value) => vm.gen().emit_constant(&[value], self.line),
             AstNodeType::FloatLiteral(value) => vm.gen().emit_constant(&[value as i64], self.line),
-            AstNodeType::BoolLiteral(value) => {
-                vm.gen().emit_constant(&[if value { 1 } else { 0 }], self.line)
-            }
+            AstNodeType::BoolLiteral(value) => vm
+                .gen()
+                .emit_constant(&[if value { 1 } else { 0 }], self.line),
             AstNodeType::StrLiteral(value) => {
                 let heap_index = vm.allocate_string(&value);
                 vm.gen().emit_constant(&[heap_index], self.line)
@@ -666,12 +713,17 @@ impl AstNode {
                 }
                 scope
             }
-            AstNodeType::Block(stmts, block_bytes) => {
+            AstNodeType::Block {
+                statements,
+                expression,
+                scope_words,
+            } => {
                 scope.begin_scope();
-                for s in stmts {
+                for s in statements {
                     scope = s.resolve_variables(scope, vm);
                 }
-                *block_bytes = scope.end_scope();
+                scope = expression.resolve_variables(scope, vm);
+                *scope_words = scope.end_scope();
                 scope
             }
             AstNodeType::DeclareStatement(lhs, rhs) => {
@@ -730,12 +782,17 @@ impl AstNode {
                 lhs.resolve_types(type_map)?;
                 rhs.resolve_types(type_map)?;
             }
-            AstNodeType::Block(statements, _) => {
+            AstNodeType::Block {
+                statements,
+                expression,
+                scope_words: _,
+            } => {
                 let statements: Result<Vec<_>, _> = statements
                     .into_iter()
                     .map(|s| s.resolve_types(type_map))
                     .collect();
                 statements?;
+                expression.resolve_types(type_map)?;
             }
             AstNodeType::Program(statements) => {
                 let statements: Result<Vec<_>, _> = statements
@@ -810,30 +867,22 @@ fn identifier_constant(name: &str, vm: &mut VM) -> u8 {
 }
 
 pub fn analyze(ast: &mut AstNode, vm: &mut VM) -> InterpretResult {
-    let substitutions = generate_substitutions(ast);
-    match substitutions {
-        Ok(substitutions) => {
-            #[cfg(feature = "debug-type-check")]
-            {
-                eprintln!("{:#?}", ast);
-                eprintln!("{:#?}", substitutions);
-            }
-
-            let type_map = create_type_map(substitutions)?;
-            ast.resolve_types(&type_map)?;
-            final_type_check(&ast)?;
-
-            ast.resolve_variables(Scope::top(), vm);
-
-            #[cfg(feature = "debug-logging")]
-            eprintln!("{:#?}", ast);
-            Ok(())
-        }
-        Err(e) => {
-            eprintln!("{:?}", e);
-            Err(InterpretError::Compile)
-        }
+    let substitutions = generate_substitutions(ast)?;
+    #[cfg(feature = "debug-type-check")]
+    {
+        eprintln!("{:#?}", ast);
+        eprintln!("{:#?}", substitutions);
     }
+
+    let type_map = create_type_map(substitutions)?;
+    ast.resolve_types(&type_map)?;
+    check_operator_constraints(&ast)?;
+
+    ast.resolve_variables(Scope::top(), vm);
+
+    #[cfg(feature = "debug-logging")]
+    eprintln!("{:#?}", ast);
+    Ok(())
 }
 
 fn find_local_location(locals: &[Local], name: &str) -> Option<(NodeId, usize)> {

@@ -1,6 +1,4 @@
 use std::collections::{HashMap, VecDeque};
-use std::error;
-use std::fmt;
 
 use crate::ast::{AstNode, AstNodeType, NodeId, Operator};
 use crate::common::{InterpretError, InterpretResult};
@@ -131,26 +129,6 @@ impl DataType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum TypeError {
-    Mismatched, // TODO add type params
-                //InvalidTypeAnnonation(String),
-}
-
-impl fmt::Display for TypeError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            TypeError::Mismatched => write!(f, "Mismatched types.",),
-        }
-    }
-}
-
-impl error::Error for TypeError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        None
-    }
-}
-
 #[derive(Debug)]
 pub struct Scope<'a> {
     parent: Option<&'a Scope<'a>>,
@@ -201,6 +179,11 @@ impl<'a> Scope<'a> {
 
 fn error(message: &str) -> InterpretError {
     eprintln!("Error: {}", message);
+    InterpretError::Compile
+}
+
+fn error_line(line: u32, message: &str) -> InterpretError {
+    eprintln!("[line {}] Error: {}", line, message);
     InterpretError::Compile
 }
 
@@ -328,52 +311,45 @@ fn insert_if_constrained(
     }
 }
 
-pub fn generate_substitutions(node: &AstNode) -> Result<Vec<TypeConstraint>, TypeError> {
+pub fn generate_substitutions(node: &AstNode) -> Result<Vec<TypeConstraint>, InterpretError> {
     let mut scope = Scope::new(None);
-    let constraints = generate_constraints(node, &mut scope)?;
+    let constraints = generate_constraints(node, &mut scope, None)?;
     unify(constraints)
 }
 
-fn check_type(node: &AstNode, dt: &DataType) -> Result<(), TypeError> {
+fn check_type(node: &AstNode, dt: &DataType) -> Result<(), InterpretError> {
     check_types(node, &[&dt])
 }
 
-fn check_numeric(node: &AstNode) -> Result<(), TypeError> {
+fn check_numeric(node: &AstNode) -> Result<(), InterpretError> {
     check_types(node, &[&DataType::Int, &DataType::Float])
 }
 
-fn check_plus_types(node: &AstNode) -> Result<(), TypeError> {
+fn check_plus_types(node: &AstNode) -> Result<(), InterpretError> {
     check_types(node, &[&DataType::Int, &DataType::Float, &DataType::Str])
 }
 
-fn check_types(node: &AstNode, types: &[&DataType]) -> Result<(), TypeError> {
+fn check_types(node: &AstNode, types: &[&DataType]) -> Result<(), InterpretError> {
     if let Some(dt) = &node.data_type {
         if types.contains(&dt) {
             Ok(())
         } else {
-            Err(TypeError::Mismatched)
+            Err(error("Mismatched types."))
         }
     } else {
-        Err(TypeError::Mismatched)
+        Err(error("Mismatched types."))
     }
 }
 
-fn check_node_has_type(node: &AstNode) -> Result<(), TypeError> {
+fn check_node_has_type(node: &AstNode) -> Result<(), InterpretError> {
     if node.data_type.is_some() {
         Ok(())
     } else {
-        Err(TypeError::Mismatched)
+        Err(error("Mismatched types."))
     }
 }
 
-pub fn final_type_check(node: &AstNode) -> InterpretResult {
-    check_operator_constraints(node).map_err(|e| {
-        error(&format!("{}", e));
-        InterpretError::Compile
-    })
-}
-
-fn check_operator_constraints(node: &AstNode) -> Result<(), TypeError> {
+pub fn check_operator_constraints(node: &AstNode) -> Result<(), InterpretError> {
     match &node.node_type {
         AstNodeType::IntLiteral(_)
         | AstNodeType::FloatLiteral(_)
@@ -426,11 +402,21 @@ fn check_operator_constraints(node: &AstNode) -> Result<(), TypeError> {
                 _ => panic!("Invalid binary operator"),
             }
         }
-        AstNodeType::Program(statements) | AstNodeType::Block(statements, _) => {
+        AstNodeType::Program(statements) => {
             for statement in statements.iter() {
                 check_operator_constraints(statement)?;
             }
             Ok(())
+        }
+        AstNodeType::Block {
+            statements,
+            expression,
+            scope_words: _,
+        } => {
+            for statement in statements.iter() {
+                check_operator_constraints(statement)?;
+            }
+            check_operator_constraints(expression)
         }
         AstNodeType::PrintStatement(e) | AstNodeType::ExpressionStatement(e) => {
             check_node_has_type(e)?;
@@ -490,7 +476,8 @@ fn check_operator_constraints(node: &AstNode) -> Result<(), TypeError> {
 fn generate_constraints<'a>(
     node: &AstNode,
     scope: &'a mut Scope,
-) -> Result<Vec<TypeConstraint>, TypeError> {
+    enclosing_return_type_id: Option<NodeId>,
+) -> Result<Vec<TypeConstraint>, InterpretError> {
     match &node.node_type {
         AstNodeType::IntLiteral(_) => Ok(vec![TypeConstraint::new(
             TCSide::Expr(node.id),
@@ -520,7 +507,11 @@ fn generate_constraints<'a>(
                 ],
                 _ => panic!("Invalid unary operator"),
             };
-            constraints.append(&mut generate_constraints(operand, scope)?);
+            constraints.append(&mut generate_constraints(
+                operand,
+                scope,
+                enclosing_return_type_id,
+            )?);
             Ok(constraints)
         }
         AstNodeType::Binary(operator, a, b) => {
@@ -552,8 +543,16 @@ fn generate_constraints<'a>(
                 _ => panic!("Invalid infix operator"),
             };
 
-            constraints.append(&mut generate_constraints(a, scope)?);
-            constraints.append(&mut generate_constraints(b, scope)?);
+            constraints.append(&mut generate_constraints(
+                a,
+                scope,
+                enclosing_return_type_id,
+            )?);
+            constraints.append(&mut generate_constraints(
+                b,
+                scope,
+                enclosing_return_type_id,
+            )?);
             Ok(constraints)
         }
         AstNodeType::Program(statements) => {
@@ -562,7 +561,11 @@ fn generate_constraints<'a>(
                 TCSide::basic(TCNodeType::Nil),
             )];
             for statement in statements.iter() {
-                constraints.append(&mut generate_constraints(statement, scope)?);
+                constraints.append(&mut generate_constraints(
+                    statement,
+                    scope,
+                    enclosing_return_type_id,
+                )?);
             }
             Ok(constraints)
         }
@@ -571,7 +574,11 @@ fn generate_constraints<'a>(
                 TCSide::Expr(node.id),
                 TCSide::basic(TCNodeType::Nil),
             )];
-            constraints.append(&mut generate_constraints(e, scope)?);
+            constraints.append(&mut generate_constraints(
+                e,
+                scope,
+                enclosing_return_type_id,
+            )?);
             Ok(constraints)
         }
         AstNodeType::ExpressionStatement(e) => {
@@ -579,7 +586,11 @@ fn generate_constraints<'a>(
                 TCSide::Expr(node.id),
                 TCSide::basic(TCNodeType::Nil),
             )];
-            constraints.append(&mut generate_constraints(e, scope)?);
+            constraints.append(&mut generate_constraints(
+                e,
+                scope,
+                enclosing_return_type_id,
+            )?);
             Ok(constraints)
         }
         AstNodeType::ReturnStatement(e) => {
@@ -588,8 +599,22 @@ fn generate_constraints<'a>(
                 TCSide::Expr(node.id),
                 TCSide::basic(TCNodeType::Nil),
             )];
-            constraints.append(&mut generate_constraints(e, scope)?);
-            Ok(constraints)
+            if let Some(enclosing_return_type_id) = enclosing_return_type_id {
+                // Ensure return statements match enclosing function return type
+                constraints.push(TypeConstraint::new(
+                    TCSide::Expr(enclosing_return_type_id),
+                    TCSide::Expr(e.id),
+                ));
+
+                constraints.append(&mut generate_constraints(
+                    e,
+                    scope,
+                    Some(enclosing_return_type_id),
+                )?);
+                Ok(constraints)
+            } else {
+                Err(error_line(node.line, "Can't return from top-level code."))
+            }
         }
         AstNodeType::DeclareStatement(lhs, rhs) => {
             let mut constraints = vec![
@@ -609,19 +634,35 @@ fn generate_constraints<'a>(
                 }
                 _ => panic!("Invalid lhs for let"),
             };
-            //constraints.append(&mut generate_constraints(lhs, scope)?);
-            constraints.append(&mut generate_constraints(rhs, scope)?);
+            constraints.append(&mut generate_constraints(
+                rhs,
+                scope,
+                enclosing_return_type_id,
+            )?);
             Ok(constraints)
         }
-        AstNodeType::Block(statements, _) => {
+        AstNodeType::Block {
+            statements,
+            expression,
+            scope_words: _,
+        } => {
             let mut block_scope = Scope::new(Some(scope));
-            let mut constraints = vec![
-                // TODO make this node have type and value of last statement like rust
-                TypeConstraint::new(TCSide::Expr(node.id), TCSide::basic(TCNodeType::Nil)),
-            ];
+            let mut constraints = vec![TypeConstraint::new(
+                TCSide::Expr(node.id),
+                TCSide::Expr(expression.id),
+            )];
             for statement in statements.iter() {
-                constraints.append(&mut generate_constraints(statement, &mut block_scope)?);
+                constraints.append(&mut generate_constraints(
+                    statement,
+                    &mut block_scope,
+                    enclosing_return_type_id,
+                )?);
             }
+            constraints.append(&mut generate_constraints(
+                expression,
+                &mut block_scope,
+                enclosing_return_type_id,
+            )?);
             Ok(constraints)
         }
         AstNodeType::IfStatement(condition, then_block, else_block) => {
@@ -629,9 +670,21 @@ fn generate_constraints<'a>(
                 TypeConstraint::new(TCSide::Expr(node.id), TCSide::basic(TCNodeType::Nil)),
                 TypeConstraint::new(TCSide::Expr(condition.id), TCSide::basic(TCNodeType::Bool)),
             ];
-            constraints.append(&mut generate_constraints(condition, scope)?);
-            constraints.append(&mut generate_constraints(then_block, scope)?);
-            constraints.append(&mut generate_constraints(else_block, scope)?);
+            constraints.append(&mut generate_constraints(
+                condition,
+                scope,
+                enclosing_return_type_id,
+            )?);
+            constraints.append(&mut generate_constraints(
+                then_block,
+                scope,
+                enclosing_return_type_id,
+            )?);
+            constraints.append(&mut generate_constraints(
+                else_block,
+                scope,
+                enclosing_return_type_id,
+            )?);
             Ok(constraints)
         }
         AstNodeType::WhileStatement(condition, loop_block) => {
@@ -639,8 +692,16 @@ fn generate_constraints<'a>(
                 TypeConstraint::new(TCSide::Expr(node.id), TCSide::basic(TCNodeType::Nil)),
                 TypeConstraint::new(TCSide::Expr(condition.id), TCSide::basic(TCNodeType::Bool)),
             ];
-            constraints.append(&mut generate_constraints(condition, scope)?);
-            constraints.append(&mut generate_constraints(loop_block, scope)?);
+            constraints.append(&mut generate_constraints(
+                condition,
+                scope,
+                enclosing_return_type_id,
+            )?);
+            constraints.append(&mut generate_constraints(
+                loop_block,
+                scope,
+                enclosing_return_type_id,
+            )?);
             Ok(constraints)
         }
         AstNodeType::Variable {
@@ -653,7 +714,11 @@ fn generate_constraints<'a>(
                 Vec::new()
             };
 
-            constraints.append(&mut generate_constraints(type_annotation, scope)?);
+            constraints.append(&mut generate_constraints(
+                type_annotation,
+                scope,
+                enclosing_return_type_id,
+            )?);
             constraints.push(TypeConstraint::new(
                 TCSide::Expr(node.id),
                 TCSide::Expr(type_annotation.id),
@@ -679,7 +744,11 @@ fn generate_constraints<'a>(
 
             let mut constraints = Vec::new();
             for param in params.iter() {
-                constraints.append(&mut generate_constraints(param, func_scope)?);
+                constraints.append(&mut generate_constraints(
+                    param,
+                    func_scope,
+                    enclosing_return_type_id,
+                )?);
                 match &param.node_type {
                     AstNodeType::Variable {
                         name,
@@ -699,7 +768,11 @@ fn generate_constraints<'a>(
             }
 
             //constraints.push(TypeConstraint::new(TCSide::Expr(return_type.id), TCSide::from(return_type.data_type.as_ref().unwrap())));
-            constraints.append(&mut generate_constraints(return_type, func_scope)?);
+            constraints.append(&mut generate_constraints(
+                return_type,
+                func_scope,
+                enclosing_return_type_id,
+            )?);
 
             constraints.push(TypeConstraint::new(
                 TCSide::Expr(node.id),
@@ -712,21 +785,11 @@ fn generate_constraints<'a>(
                 },
             ));
 
-            constraints.append(&mut generate_constraints(body, func_scope)?);
-
-            match &body.node_type {
-                AstNodeType::Block(stmts, _) => {
-                    for stmt in stmts.iter() {
-                        if let AstNodeType::ReturnStatement(e) = &stmt.node_type {
-                            constraints.push(TypeConstraint::new(
-                                TCSide::Expr(return_type.id),
-                                TCSide::Expr(e.id),
-                            ));
-                        }
-                    }
-                }
-                _ => panic!("Function body must be a body"),
-            }
+            constraints.append(&mut generate_constraints(
+                body,
+                func_scope,
+                Some(return_type.id),
+            )?);
 
             Ok(constraints)
         }
@@ -740,9 +803,17 @@ fn generate_constraints<'a>(
                 },
             )];
 
-            constraints.append(&mut generate_constraints(target, scope)?);
+            constraints.append(&mut generate_constraints(
+                target,
+                scope,
+                enclosing_return_type_id,
+            )?);
             for arg in args.iter() {
-                constraints.append(&mut generate_constraints(arg, scope)?);
+                constraints.append(&mut generate_constraints(
+                    arg,
+                    scope,
+                    enclosing_return_type_id,
+                )?);
             }
 
             Ok(constraints)
@@ -751,7 +822,7 @@ fn generate_constraints<'a>(
     }
 }
 
-fn unify<'a>(mut constraints: Vec<TypeConstraint>) -> Result<Vec<TypeConstraint>, TypeError> {
+fn unify<'a>(mut constraints: Vec<TypeConstraint>) -> Result<Vec<TypeConstraint>, InterpretError> {
     let mut substitutions = Vec::new();
     unify_helper(&mut constraints, &mut substitutions)?;
     Ok(substitutions)
@@ -760,7 +831,7 @@ fn unify<'a>(mut constraints: Vec<TypeConstraint>) -> Result<Vec<TypeConstraint>
 fn unify_helper(
     constraints: &mut Vec<TypeConstraint>,
     substitutions: &mut Vec<TypeConstraint>,
-) -> Result<(), TypeError> {
+) -> Result<(), InterpretError> {
     while let Some(c) = constraints.pop() {
         match &c.left {
             TCSide::Expr(_) => {
@@ -782,7 +853,7 @@ fn unify_helper(
                     parameters: right_children,
                 } => {
                     if left_type != right_type {
-                        return Err(TypeError::Mismatched);
+                        return Err(error("Mismatched types."));
                     }
                     match (left_return, right_return) {
                         (Some(left_return), Some(right_return)) => {
@@ -792,11 +863,11 @@ fn unify_helper(
                             ));
                         }
                         (None, None) => (),
-                        _ => return Err(TypeError::Mismatched),
+                        _ => return Err(error("Mismatched types.")),
                     }
 
                     if left_children.len() != right_children.len() {
-                        return Err(TypeError::Mismatched);
+                        return Err(error("Mismatched types."));
                     }
                     for child_constr in left_children
                         .into_iter()

@@ -219,7 +219,6 @@ impl<'a> Parser<'a> {
         AstNode::new(
             self.id(),
             line,
-            //AstNodeType::LetStatement(var_name, Box::new(variable), Box::new(expression)),
             AstNodeType::DeclareStatement(Box::new(variable), Box::new(expression)),
         )
     }
@@ -352,14 +351,13 @@ impl<'a> Parser<'a> {
             AstNode::new(
                 self.id(),
                 line,
-                AstNodeType::Block(
-                    vec![AstNode::new(
-                        self.id(),
-                        line,
-                        AstNodeType::ReturnStatement(Box::new(e)),
-                    )],
-                    0,
-                ),
+                AstNodeType::Block {
+                    statements: Vec::new(),
+                    expression: Box::new(e),
+
+                    // this isn't accurate, but it doesn't matter because as a function, the whole stack frame gets popped when this block goes out of scope
+                    scope_words: 0,
+                },
             )
         };
 
@@ -382,8 +380,6 @@ impl<'a> Parser<'a> {
             self.if_statement()
         } else if self.match_tok(TokenType::While) {
             self.while_statement()
-        } else if self.match_tok(TokenType::LeftBrace) {
-            self.block()
         } else if self.match_tok(TokenType::Return) {
             self.return_statement()
         } else {
@@ -393,13 +389,45 @@ impl<'a> Parser<'a> {
 
     fn block(&mut self) -> AstNode {
         let mut statements = Vec::new();
+        let mut expression = None;
         let line = self.previous.line;
         while !self.check(TokenType::RightBrace) && !self.check(TokenType::Eof) {
-            statements.push(self.declaration());
+            if self.check(TokenType::Let)
+                || self.check(TokenType::Fun)
+                || self.check(TokenType::Print)
+                || self.check(TokenType::If)
+                || self.check(TokenType::While)
+                || self.check(TokenType::Return)
+            {
+                statements.push(self.declaration());
+            } else {
+                let e = self.expression();
+                if self.match_tok(TokenType::SemiColon) {
+                    statements.push(AstNode::new(
+                        self.id(),
+                        e.line,
+                        AstNodeType::ExpressionStatement(Box::new(e)),
+                    ));
+                } else {
+                    expression = Some(e);
+                    break;
+                }
+            }
         }
 
         self.consume(TokenType::RightBrace, "Expect '}' after block.");
-        AstNode::new(self.id(), line, AstNodeType::Block(statements, 0))
+        AstNode::new(
+            self.id(),
+            line,
+            AstNodeType::Block {
+                statements,
+                expression: Box::new(expression.unwrap_or_else(|| {
+                    // If no expression, then block has nil value
+                    AstNode::empty(self.id(), line)
+                })),
+                scope_words: 0,
+            },
+        )
     }
 
     fn if_statement(&mut self) -> AstNode {
@@ -418,7 +446,11 @@ impl<'a> Parser<'a> {
             AstNode::new(
                 self.id(),
                 self.previous.line,
-                AstNodeType::Block(Vec::new(), 0),
+                AstNodeType::Block {
+                    statements: Vec::new(),
+                    expression: Box::new(AstNode::empty(self.id(), self.previous.line)),
+                    scope_words: 0,
+                },
             )
         };
         AstNode::new(
@@ -454,10 +486,12 @@ impl<'a> Parser<'a> {
     fn expression_statement(&mut self) -> AstNode {
         let line = self.current.line;
         let e = self.expression();
-        self.consume(
-            TokenType::SemiColon,
-            "Expect ';' after expression statement.",
-        );
+        if self.previous.tok_type != TokenType::RightBrace {
+            self.consume(
+                TokenType::SemiColon,
+                "Expect ';' after expression statement.",
+            );
+        }
         AstNode::new(
             self.id(),
             line,
@@ -481,7 +515,11 @@ impl<'a> Parser<'a> {
     }
 
     fn expression(&mut self) -> AstNode {
-        self.parse_precedence(Precedence::Base)
+        if self.match_tok(TokenType::LeftBrace) {
+            self.block()
+        } else {
+            self.parse_precedence(Precedence::Base)
+        }
     }
 
     fn integer(&mut self) -> AstNode {
